@@ -58,6 +58,7 @@
         <dep.logback.version>1.2.3</dep.logback.version>
         <dep.jmxutils.version>1.20</dep.jmxutils.version>
         <dep.gcs.version>1.9.10</dep.gcs.version>
+        <dep.phoenix.version>4.14.1-HBase-1.4-PPS-0.3</dep.phoenix.version>
 
         <!--
           America/Bahia_Banderas has:
@@ -99,6 +100,7 @@
         <module>presto-raptor-legacy</module>
         <module>presto-base-jdbc</module>
         <module>presto-mysql</module>
+        <module>presto-phoenix</module>
         <module>presto-postgresql</module>
         <module>presto-redshift</module>
         <module>presto-sqlserver</module>
@@ -825,6 +827,12 @@
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-math3</artifactId>
                 <version>3.6.1</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.phoenix</groupId>
+                <artifactId>presto-phoenix-client-shaded</artifactId>
+                <version>${dep.phoenix.version}</version>
             </dependency>
 
             <dependency>
