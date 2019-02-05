@@ -56,9 +56,9 @@ import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static io.prestosql.plugin.phoenix.MetadataUtil.decomposePrimaryKeyColumn;
+import static io.prestosql.plugin.phoenix.MetadataUtil.getFullTableName;
 import static io.prestosql.spi.type.DateTimeEncoding.unpackMillisUtc;
 import static io.prestosql.spi.type.Decimals.isLongDecimal;
 import static io.prestosql.spi.type.Decimals.isShortDecimal;
@@ -99,13 +99,7 @@ public class QueryBuilder
             }
         }
         sql.append(" FROM ");
-        if (!isNullOrEmpty(catalog)) {
-            sql.append(catalog).append('.');
-        }
-        if (!isNullOrEmpty(schema)) {
-            sql.append(schema).append('.');
-        }
-        sql.append(table);
+        sql.append(getFullTableName(catalog, schema, table));
 
         List<TypeAndValue> accumulator = new ArrayList<>();
 

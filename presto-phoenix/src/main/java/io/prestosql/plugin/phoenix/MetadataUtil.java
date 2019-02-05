@@ -16,9 +16,6 @@ package io.prestosql.plugin.phoenix;
 import io.prestosql.spi.type.RowType;
 import io.prestosql.spi.type.Type;
 
-import java.sql.DatabaseMetaData;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -26,6 +23,7 @@ import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.isNullOrEmpty;
+import static io.prestosql.plugin.phoenix.PhoenixMetadata.DEFAULT_SCHEMA;
 import static io.prestosql.plugin.phoenix.PhoenixMetadata.UPDATE_ROW_ID;
 
 public class MetadataUtil
@@ -49,17 +47,6 @@ public class MetadataUtil
         return Stream.of(handle);
     }
 
-    public static ResultSet getColumns(PhoenixTableHandle tableHandle, DatabaseMetaData metadata)
-            throws SQLException
-    {
-        String escape = metadata.getSearchStringEscape();
-        return metadata.getColumns(
-                tableHandle.getCatalogName(),
-                escapeNamePattern(tableHandle.getSchemaName(), escape),
-                escapeNamePattern(tableHandle.getTableName(), escape),
-                null);
-    }
-
     public static String getFullTableName(String catalog, String schema, String table)
     {
         StringBuilder sb = new StringBuilder();
@@ -67,10 +54,23 @@ public class MetadataUtil
             sb.append(catalog).append(".");
         }
         if (!isNullOrEmpty(schema)) {
-            sb.append(schema).append(".");
+            schema = toPhoenixSchemaName(schema);
+            if (!isNullOrEmpty(schema)) {
+                sb.append(schema).append(".");
+            }
         }
         sb.append(table);
         return sb.toString();
+    }
+
+    public static String toPhoenixSchemaName(String prestoSchemaName)
+    {
+        return DEFAULT_SCHEMA.equalsIgnoreCase(prestoSchemaName) ? "" : prestoSchemaName;
+    }
+
+    public static String toPrestoSchemaName(String phoenixSchemaName)
+    {
+        return isNullOrEmpty(phoenixSchemaName) ? DEFAULT_SCHEMA : phoenixSchemaName;
     }
 
     public static Optional<PhoenixColumnHandle> getPrimaryKeyHandle(List<PhoenixColumnHandle> cols)
