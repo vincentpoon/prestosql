@@ -22,6 +22,7 @@ import io.prestosql.spi.block.BlockBuilder;
 import io.prestosql.spi.block.RowBlockBuilder;
 import io.prestosql.spi.block.SingleRowBlockWriter;
 import io.prestosql.spi.connector.ConnectorPageSource;
+import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.type.DecimalType;
 import io.prestosql.spi.type.RealType;
 import io.prestosql.spi.type.RowType;
@@ -81,7 +82,6 @@ public class PhoenixPageSource
         implements ConnectorPageSource
 {
     private static final ISOChronology UTC_CHRONOLOGY = ISOChronology.getInstanceUTC();
-    private static final int ROWS_PER_REQUEST = 4096;
     private final List<String> columnNames;
     private final List<Type> columnTypes;
     private final PageBuilder pageBuilder;
@@ -95,12 +95,14 @@ public class PhoenixPageSource
     private long bytesRead;
     private long nanoStart;
     private long nanoEnd;
+    private long rowsPerPage;
 
-    public PhoenixPageSource(PhoenixClient phoenixClient, PhoenixSplit split, List<PhoenixColumnHandle> columns)
+    public PhoenixPageSource(ConnectorSession session, PhoenixClient phoenixClient, PhoenixSplit split, List<PhoenixColumnHandle> columns)
     {
         this.columnNames = columns.stream().map(PhoenixColumnHandle::getColumnName).collect(toList());
         this.columnTypes = columns.stream().map(PhoenixColumnHandle::getColumnType).collect(toList());
         this.pageBuilder = new PageBuilder(columnTypes);
+        rowsPerPage = PhoenixSessionProperties.getReadPageSize(session);
 
         try {
             this.connection = phoenixClient.getConnection();
@@ -165,7 +167,7 @@ public class PhoenixPageSource
 
         if (!closed) {
             try {
-                for (int i = 0; i < ROWS_PER_REQUEST; i++) {
+                for (int i = 0; i < rowsPerPage; i++) {
                     if (!hasNext()) {
                         close();
                         break;

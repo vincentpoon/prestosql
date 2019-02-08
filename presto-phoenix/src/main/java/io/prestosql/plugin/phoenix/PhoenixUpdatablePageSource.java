@@ -17,6 +17,7 @@ import com.google.common.base.Joiner;
 import io.airlift.slice.Slice;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.block.Block;
+import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.UpdatablePageSource;
 import io.prestosql.spi.type.RowType;
 import io.prestosql.spi.type.RowType.Field;
@@ -46,10 +47,10 @@ public class PhoenixUpdatablePageSource
     private PreparedStatement deleteStatement;
     private List<Field> pkFields;
 
-    public PhoenixUpdatablePageSource(PhoenixClient phoenixClient, PhoenixSplit split,
+    public PhoenixUpdatablePageSource(ConnectorSession session, PhoenixClient phoenixClient, PhoenixSplit split,
             List<PhoenixColumnHandle> columns)
     {
-        super(phoenixClient, split, columns);
+        super(session, phoenixClient, split, columns);
         this.split = split;
         RowType pkRowType = (RowType) getPrimaryKeyHandle(columns).get().getColumnType();
         this.pkFields = pkRowType.getFields();

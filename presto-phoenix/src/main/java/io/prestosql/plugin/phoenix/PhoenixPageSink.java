@@ -38,6 +38,8 @@ import static io.prestosql.plugin.phoenix.MetadataUtil.getFullTableName;
 import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_ERROR;
 import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_NON_TRANSIENT_ERROR;
 import static io.prestosql.plugin.phoenix.PhoenixMetadata.ROWKEY;
+import static io.prestosql.plugin.phoenix.PhoenixSessionProperties.getDuplicateKeyUpdateColumns;
+import static io.prestosql.plugin.phoenix.PhoenixSessionProperties.getWriteBatchSize;
 import static io.prestosql.plugin.phoenix.TypeUtils.getObjectValue;
 import static java.util.Collections.nCopies;
 import static java.util.concurrent.CompletableFuture.completedFuture;
@@ -53,6 +55,7 @@ public class PhoenixPageSink
     private final List<String> dupKeyColumns;
     private int batchSize;
     private boolean hasRowkey;
+    private long writeBatchSize;
 
     public PhoenixPageSink(PhoenixOutputTableHandle handle, ConnectorSession session, PhoenixClient phoenixClient)
     {
@@ -60,7 +63,8 @@ public class PhoenixPageSink
         columnNames = handle.getColumnNames();
 
         hasRowkey = ROWKEY.equalsIgnoreCase(columnNames.get(0));
-        List<String> duplicateKeyUpdateColumns = PhoenixSessionProperties.getDuplicateKeyUpdateColumns(session);
+        List<String> duplicateKeyUpdateColumns = getDuplicateKeyUpdateColumns(session);
+        writeBatchSize = getWriteBatchSize(session);
 
         dupKeyColumns = columnNames.stream().filter(column -> duplicateKeyUpdateColumns.contains(column)).collect(Collectors.toList());
 
@@ -142,7 +146,7 @@ public class PhoenixPageSink
                 statement.addBatch();
                 batchSize++;
 
-                if (batchSize >= 1000) {
+                if (batchSize >= writeBatchSize) {
                     statement.executeBatch();
                     connection.commit();
                     connection.setAutoCommit(false);

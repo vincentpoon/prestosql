@@ -45,11 +45,13 @@ public class PhoenixPageSourceProvider
         List<PhoenixColumnHandle> phoenixCols = columns.stream().map(column -> (PhoenixColumnHandle) column).collect(Collectors.toList());
         if (getPrimaryKeyHandle(phoenixCols).isPresent()) {
             return new PhoenixUpdatablePageSource(
+                    session,
                     phoenixClient,
                     (PhoenixSplit) split,
                     phoenixCols);
         }
         return new PhoenixPageSource(
+                session,
                 phoenixClient,
                 (PhoenixSplit) split,
                 phoenixCols);

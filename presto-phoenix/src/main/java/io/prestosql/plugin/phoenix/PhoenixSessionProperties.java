@@ -22,6 +22,7 @@ import javax.inject.Inject;
 
 import java.util.List;
 
+import static io.prestosql.spi.session.PropertyMetadata.longProperty;
 import static io.prestosql.spi.session.PropertyMetadata.stringProperty;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
@@ -38,6 +39,8 @@ public final class PhoenixSessionProperties
 {
     private static final String DUPLICATE_KEY_UPDATE_COLUMNS = "duplicate_key_update_columns";
     private static final Splitter DUPLICATE_KEY_UPDATE_COLUMNS_SPLITTER = Splitter.on(" and ").trimResults();
+    private static final String WRITE_BATCH_SIZE = "write_batch_size";
+    private static final String READ_PAGE_SIZE = "read_page_size";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -47,8 +50,18 @@ public final class PhoenixSessionProperties
         sessionProperties = ImmutableList.of(
                 stringProperty(
                         DUPLICATE_KEY_UPDATE_COLUMNS,
-                        "A comma-delimited list of Presto columns that the row will be updated.",
+                        "Comma separated list of columns for 'ON DUPLICATE KEY UPDATE' clause",
                         null,
+                        false),
+                longProperty(
+                        WRITE_BATCH_SIZE,
+                        "Number of rows to write for each batch",
+                        1024L,
+                        false),
+                longProperty(
+                        READ_PAGE_SIZE,
+                        "Number of rows to read from Phoenix for each Presto page",
+                        4096L,
                         false));
     }
 
@@ -66,5 +79,15 @@ public final class PhoenixSessionProperties
             return ImmutableList.of();
         }
         return ImmutableList.copyOf(DUPLICATE_KEY_UPDATE_COLUMNS_SPLITTER.split(value.toLowerCase(ENGLISH)));
+    }
+
+    public static long getWriteBatchSize(ConnectorSession session)
+    {
+        return session.getProperty(WRITE_BATCH_SIZE, Long.class);
+    }
+
+    public static long getReadPageSize(ConnectorSession session)
+    {
+        return session.getProperty(READ_PAGE_SIZE, Long.class);
     }
 }
