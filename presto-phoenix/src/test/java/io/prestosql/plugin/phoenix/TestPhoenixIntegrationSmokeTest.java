@@ -149,6 +149,11 @@ public class TestPhoenixIntegrationSmokeTest
         assertEquals(row.getField(8), new BigDecimal("3.14"));
         assertEquals(row.getField(9), new BigDecimal("12345678901234567890.0123456789"));
         assertEquals(row.getField(10), "bar       ");
+
+        assertQuery("SELECT count(*) FROM test_types_table WHERE col_boolean = true", "select 1");
+        assertQuery("SELECT count(*) FROM test_types_table WHERE col_date = date('1980-05-07')", "select 1");
+        assertQuery("SELECT count(*) FROM test_types_table WHERE col_timestamp = TIMESTAMP '1980-05-07 11:22:33.456'", "select 1");
+
         assertUpdate("DROP TABLE test_types_table");
 
         assertFalse(getQueryRunner().tableExists(getSession(), "test_types_table"));

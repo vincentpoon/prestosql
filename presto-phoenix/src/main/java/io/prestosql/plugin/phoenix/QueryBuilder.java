@@ -320,13 +320,10 @@ public class QueryBuilder
                 return "'" + ((String) parameter).replace("'", "''") + "'";
             }
             else if (parameter instanceof Timestamp) {
-                return "to_timestamp('" + new SimpleDateFormat("MM/dd/yyyy HH:mm:ss.SSS").format(parameter) + "', 'mm/dd/yyyy hh24:mi:ss.ff3')";
+                return "to_timestamp('" + new SimpleDateFormat("MM/dd/yyyy HH:mm:ss.SSS").format(parameter) + "', 'MM/dd/yyyy HH:mm:ss.SSS')";
             }
             else if (parameter instanceof Date) {
-                return "to_date('" + new SimpleDateFormat("MM/dd/yyyy HH:mm:ss").format(parameter) + "', 'mm/dd/yyyy hh24:mi:ss')";
-            }
-            else if (parameter instanceof Boolean) {
-                return ((Boolean) parameter).booleanValue() ? "1" : "0";
+                return "to_date('" + new SimpleDateFormat("MM/dd/yyyy HH:mm:ss").format(parameter) + "', 'MM/dd/yyyy HH:mm:ss')";
             }
             else {
                 return parameter.toString();
