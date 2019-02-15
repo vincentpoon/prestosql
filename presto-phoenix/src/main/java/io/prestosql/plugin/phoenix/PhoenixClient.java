@@ -19,7 +19,6 @@ import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.predicate.TupleDomain;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.phoenix.jdbc.PhoenixConnection;
-import org.apache.phoenix.jdbc.PhoenixDriver;
 import org.apache.phoenix.jdbc.PhoenixEmbeddedDriver;
 import org.apache.phoenix.jdbc.PhoenixEmbeddedDriver.ConnectionInfo;
 import org.apache.phoenix.mapreduce.util.PhoenixConfigurationUtil;
@@ -28,6 +27,7 @@ import javax.inject.Inject;
 
 import java.io.IOException;
 import java.sql.Driver;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
@@ -42,10 +42,10 @@ public class PhoenixClient
 {
     private static final Logger log = Logger.get(PhoenixClient.class);
 
-    protected final String connectorId;
-    protected final Driver driver = new PhoenixDriver();
-    protected final String connectionUrl;
-    protected final Properties connectionProperties;
+    private final String connectorId;
+    private final Driver driver;
+    private final String connectionUrl;
+    private final Properties connectionProperties;
 
     @Inject
     public PhoenixClient(PhoenixConnectorId connectorId, PhoenixConfig config)
@@ -55,6 +55,7 @@ public class PhoenixClient
 
         requireNonNull(config, "config is null");
         connectionUrl = config.getConnectionUrl();
+        driver = DriverManager.getDriver(connectionUrl);
         connectionProperties = new Properties();
         connectionProperties.putAll(config.getConnectionProperties());
     }
