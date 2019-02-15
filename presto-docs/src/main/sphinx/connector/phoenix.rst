@@ -21,8 +21,7 @@ nodes used for discovery of the hbase cluster:
 
     connector.name=phoenix
     connection-url=jdbc:phoenix:host1,host2,host3:2181:/hbase
-    connection-properties=phoenix.schema.isNamespaceMappingEnabled=true
-    allow-drop-table=true
+    connection-properties=phoenix.schema.isNamespaceMappingEnabled=true;phoenix.query.timeoutMs=60000
 
 Note that isNamespaceMappingEnabled must be true to create schemas from Presto.
 
@@ -31,19 +30,17 @@ Configuration Properties
 
 The following configuration properties are available:
 
-================================================== ====================== ========== ======================================================================
+================================================== ====================== ========== ===================================================================================
 Property Name                                      Default Value          Required   Description
-================================================== ====================== ========== ======================================================================
+================================================== ====================== ========== ===================================================================================
 ``connection-url``                                 (none)                 Yes        ``jdbc:phoenix[:zk_quorum][:zk_port][:zk_hbase_path]``.
                                                                                      The ``zk_quorum`` is a comma separated list of the ZooKeeper Servers.
-                                                                                     The ``zk_port`` is the ZooKeeper port. The ``zk_hbase_path`` is HBase
-                                                                                     root znode path, that is configurable using hbase-site.xml, and by
+                                                                                     The ``zk_port`` is the ZooKeeper port. The ``zk_hbase_path`` is the HBase
+                                                                                     root znode path, that is configurable using hbase-site.xml.  By
                                                                                      default the location is “/hbase”
-``connection-properties``                          (none)                 No         Phoenix Additional connection properties,
-                                                                                     e.g ``phoenix.schema.isNamespaceMappingEnabled``
-``allow-drop-table``                               false                  No         Set to ``true`` to allow dropping Phoenix tables from Presto via
-                                                                                     :doc:`/sql/drop-table` (defaults to ``false``).
-================================================== ====================== ========== ======================================================================
+``connection-properties``                          (none)                 No         Phoenix connection properties in key=value format, delimited by semicolon
+                                                                                     e.g ``phoenix.schema.isNamespaceMappingEnabled=true;phoenix.query.timeoutMs=60000``
+================================================== ====================== ========== ===================================================================================
 
 Querying Phoenix Tables
 -------------------------
@@ -76,24 +73,50 @@ Data types
 
 The data types mappings are as follows:
 
-==========================  ======
-Phoenix                     Presto
-==========================  ======
-BOOLEAN                     BOOLEAN
-BIGINT                      BIGINT
-INTEGER                     INTEGER
-SMALLINT                    SMALLINT
-TINYINT                     TINYINT
-DOUBLE                      DOUBLE
-REAL                        FLOAT
-VARBINARY                   VARBINARY
-DATE                        DATE
-TIME                        TIME
-TIME_WITH_TIME_ZONE         TIME
-TIMESTAMP                   TIMESTAMP
-TIMESTAMP_WITH_TIME_ZONE    TIMESTAMP
-ARRAY<?>                    ARRAY
-==========================  ======
+==========================   ============
+Phoenix                      Presto
+==========================   ============
+``BOOLEAN``                  ``BOOLEAN``
+``BIGINT``                   ``BIGINT``
+``INTEGER``                  ``INTEGER``
+``SMALLINT``                 ``SMALLINT``
+``TINYINT``                  ``TINYINT``
+``DOUBLE``                   ``DOUBLE``
+``REAL``                     ``FLOAT``
+``DECIMAL``                  ``DECIMAL``
+``BINARY``                   ``VARBINARY``
+``VARBINARY``                ``VARBINARY``
+``DATE``                     ``DATE``
+``TIME``                     ``TIME``
+``TIMESTAMP``                ``TIMESTAMP``
+``ARRAY``                    ``ARRAY``
+``VARCHAR``                  ``VARCHAR``
+``CHAR``                     ``CHAR``
+==========================   ============
+
+|
+
+============================   =============
+Presto                         Phoenix
+============================   =============
+``BOOLEAN``                    ``BOOLEAN``
+``BIGINT``                     ``BIGINT``
+``INTEGER``                    ``INTEGER``
+``SMALLINT``                   ``SMALLINT``
+``TINYINT``                    ``TINYINT``
+``DOUBLE``                     ``DOUBLE``
+``FLOAT``                      ``REAL``
+``DECIMAL``                    ``DECIMAL``
+``VARBINARY``                  ``VARBINARY``
+``DATE``                       ``DATE``
+``TIME``                       ``TIME``
+``TIME_WITH_TIME_ZONE``        ``TIME``
+``TIMESTAMP``                  ``TIMESTAMP``
+``TIMESTAMP_WITH_TIME_ZONE``   ``TIMESTAMP``
+``ARRAY``                      ``ARRAY``
+``VARCHAR``                    ``VARCHAR``
+``CHAR``                       ``CHAR``
+============================   =============
 
 Table Properties
 ----------------
@@ -109,7 +132,7 @@ Table property usage example:
       age BIGINT
     )
     WITH (
-      rowkeys = 'recordkey,birthday row_timestamp',
+      rowkeys = 'recordkey,birthday',
       salt_buckets=10
     );
 
@@ -147,9 +170,3 @@ Property Name               Default Value    Description
 ``ttl``                     ``FOREVER``      ColumnFamilies can set a TTL length in seconds, and HBase will automatically delete rows once the expiration
                                              time is reached.
 =========================== ================ ==============================================================================================================
-
-Phoenix Connector Limitations
------------------------------
-
-* Only one dimensional arrays are currently supported.
-* Tables in the Phoenix default schema without namespace mapping cannot be queried
