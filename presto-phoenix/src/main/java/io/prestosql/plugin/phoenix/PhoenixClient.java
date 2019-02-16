@@ -42,17 +42,14 @@ public class PhoenixClient
 {
     private static final Logger log = Logger.get(PhoenixClient.class);
 
-    private final String connectorId;
     private final Driver driver;
     private final String connectionUrl;
     private final Properties connectionProperties;
 
     @Inject
-    public PhoenixClient(PhoenixConnectorId connectorId, PhoenixConfig config)
+    public PhoenixClient(PhoenixConfig config)
             throws SQLException
     {
-        this.connectorId = requireNonNull(connectorId, "connectorId is null").toString();
-
         requireNonNull(config, "config is null");
         connectionUrl = config.getConnectionUrl();
         driver = DriverManager.getDriver(connectionUrl);
@@ -83,11 +80,6 @@ public class PhoenixClient
             log.debug("Execute: %s", query);
             statement.execute(query);
         }
-    }
-
-    public String getConnectorId()
-    {
-        return connectorId;
     }
 
     public String buildSql(

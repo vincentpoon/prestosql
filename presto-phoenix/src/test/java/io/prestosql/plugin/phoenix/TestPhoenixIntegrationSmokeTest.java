@@ -150,13 +150,22 @@ public class TestPhoenixIntegrationSmokeTest
         assertEquals(row.getField(9), new BigDecimal("12345678901234567890.0123456789"));
         assertEquals(row.getField(10), "bar       ");
 
-        assertQuery("SELECT count(*) FROM test_types_table WHERE col_boolean = true", "select 1");
-        assertQuery("SELECT count(*) FROM test_types_table WHERE col_date = date('1980-05-07')", "select 1");
-        assertQuery("SELECT count(*) FROM test_types_table WHERE col_timestamp = TIMESTAMP '1980-05-07 11:22:33.456'", "select 1");
+        // test types in WHERE clause
+        assertValueCount("test_types_table", "col_boolean", "true", 1);
+        assertValueCount("test_types_table", "col_date", "date('1980-05-07')", 1);
+        assertValueCount("test_types_table", "col_timestamp", "TIMESTAMP '1980-05-07 11:22:33.456'", 1);
+        assertValueCount("test_types_table", "col_varbinary", "cast('bar' as varbinary)", 1);
+        assertValueCount("test_types_table", "col_decimal_short", "CAST('3.14' AS DECIMAL(3,2))", 1);
+        assertValueCount("test_types_table", "col_decimal_long", "CAST('12345678901234567890.0123456789' AS DECIMAL(30,10))", 1);
 
         assertUpdate("DROP TABLE test_types_table");
 
         assertFalse(getQueryRunner().tableExists(getSession(), "test_types_table"));
+    }
+
+    private void assertValueCount(String tableName, String column, String value, int count)
+    {
+        assertQuery("SELECT count(*) FROM " + tableName + " WHERE " + column + " = " + value, "select " + count);
     }
 
     @Test

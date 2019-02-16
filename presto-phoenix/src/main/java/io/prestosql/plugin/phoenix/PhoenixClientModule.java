@@ -27,24 +27,20 @@ import java.sql.SQLException;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_ERROR;
-import static java.util.Objects.requireNonNull;
 
 public class PhoenixClientModule
         extends AbstractConfigurationAwareModule
 {
-    private final String connectorId;
     private final TypeManager typeManager;
 
-    public PhoenixClientModule(String connectorId, TypeManager typeManager)
+    public PhoenixClientModule(TypeManager typeManager)
     {
-        this.connectorId = requireNonNull(connectorId, "connector id is null");
         this.typeManager = typeManager;
     }
 
     @Override
     protected void setup(Binder binder)
     {
-        binder.bind(PhoenixConnectorId.class).toInstance(new PhoenixConnectorId(connectorId));
         binder.bind(ConnectorSplitManager.class).to(PhoenixSplitManager.class).in(Scopes.SINGLETON);
         binder.bind(ConnectorPageSourceProvider.class).to(PhoenixPageSourceProvider.class).in(Scopes.SINGLETON);
         binder.bind(ConnectorPageSinkProvider.class).to(PhoenixPageSinkProvider.class).in(Scopes.SINGLETON);

@@ -44,7 +44,7 @@ public class PhoenixConfig
         return connectionProperties;
     }
 
-    @Config("connection-properties")
+    @Config("phoenix-connection-properties")
     public PhoenixConfig setConnectionProperties(String properties)
     {
         for (String entry : Splitter.on(";").split(properties)) {

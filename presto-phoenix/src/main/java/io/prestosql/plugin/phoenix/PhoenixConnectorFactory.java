@@ -58,12 +58,12 @@ public class PhoenixConnectorFactory
     }
 
     @Override
-    public Connector create(String connectorId, Map<String, String> requiredConfig, ConnectorContext context)
+    public Connector create(String catalogName, Map<String, String> requiredConfig, ConnectorContext context)
     {
         requireNonNull(requiredConfig, "requiredConfig is null");
 
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
-            Bootstrap app = new Bootstrap(new JsonModule(), new PhoenixClientModule(connectorId, context.getTypeManager()));
+            Bootstrap app = new Bootstrap(new JsonModule(), new PhoenixClientModule(context.getTypeManager()));
 
             Injector injector = app
                     .strictConfig()

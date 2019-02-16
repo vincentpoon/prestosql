@@ -39,7 +39,6 @@ import io.prestosql.spi.type.Type;
 import io.prestosql.spi.type.VarcharType;
 import org.apache.phoenix.jdbc.PhoenixConnection;
 import org.apache.phoenix.jdbc.PhoenixPreparedStatement;
-import org.joda.time.DateTimeZone;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -52,6 +51,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -67,10 +67,11 @@ import static java.util.Collections.nCopies;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.DAYS;
 import static java.util.stream.Collectors.joining;
-import static org.joda.time.DateTimeZone.UTC;
 
 public class QueryBuilder
 {
+    private static final TimeZone UTC_TIME_ZONE = TimeZone.getTimeZone("UTC");
+
     private QueryBuilder()
     {
     }
@@ -135,7 +136,7 @@ public class QueryBuilder
                 }
                 else if (type.equals(DateType.DATE)) {
                     long millis = DAYS.toMillis((long) typeAndValue.getValue());
-                    statement.setDate(i + 1, new Date(UTC.getMillisKeepLocal(DateTimeZone.getDefault(), millis)));
+                    statement.setDate(i + 1, new Date(millis));
                 }
                 else if (type.equals(TimeType.TIME)) {
                     statement.setTime(i + 1, new Time((long) typeAndValue.getValue()));
@@ -320,10 +321,14 @@ public class QueryBuilder
                 return "'" + ((String) parameter).replace("'", "''") + "'";
             }
             else if (parameter instanceof Timestamp) {
-                return "to_timestamp('" + new SimpleDateFormat("MM/dd/yyyy HH:mm:ss.SSS").format(parameter) + "', 'MM/dd/yyyy HH:mm:ss.SSS')";
+                SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy HH:mm:ss.SSS");
+                dateFormat.setTimeZone(UTC_TIME_ZONE);
+                return "to_timestamp('" + dateFormat.format(parameter) + "', 'MM/dd/yyyy HH:mm:ss.SSS')";
             }
             else if (parameter instanceof Date) {
-                return "to_date('" + new SimpleDateFormat("MM/dd/yyyy HH:mm:ss").format(parameter) + "', 'MM/dd/yyyy HH:mm:ss')";
+                SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy");
+                dateFormat.setTimeZone(UTC_TIME_ZONE);
+                return "to_date('" + dateFormat.format(parameter) + "', 'MM/dd/yyyy')";
             }
             else {
                 return parameter.toString();

@@ -26,7 +26,6 @@ import io.prestosql.spi.type.Type;
 import io.prestosql.spi.type.VarcharType;
 import org.apache.phoenix.schema.types.PArrayDataType;
 import org.apache.phoenix.schema.types.PDataType;
-import org.joda.time.DateTimeZone;
 
 import java.sql.Date;
 import java.sql.SQLException;
@@ -58,7 +57,6 @@ import static java.lang.Float.intBitsToFloat;
 import static java.lang.Math.min;
 import static java.lang.Math.toIntExact;
 import static java.util.concurrent.TimeUnit.DAYS;
-import static org.joda.time.chrono.ISOChronology.getInstanceUTC;
 
 public final class TypeUtils
 {
@@ -227,10 +225,8 @@ public final class TypeUtils
             return type.getSlice(block, position).getBytes();
         }
         else if (DATE.equals(type)) {
-            // convert to midnight in default time zone
             long utcMillis = DAYS.toMillis(type.getLong(block, position));
-            long localMillis = getInstanceUTC().getZone().getMillisKeepLocal(DateTimeZone.getDefault(), utcMillis);
-            return new Date(localMillis);
+            return new Date(utcMillis);
         }
         else if (TIMESTAMP.equals(type)) {
             long millisUtc = type.getLong(block, position);

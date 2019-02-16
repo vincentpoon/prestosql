@@ -76,7 +76,6 @@ import static java.lang.reflect.Array.get;
 import static java.lang.reflect.Array.getLength;
 import static java.util.stream.Collectors.toList;
 import static org.apache.hadoop.hbase.client.Result.getTotalSizeOfCells;
-import static org.joda.time.DateTimeZone.UTC;
 
 public class PhoenixPageSource
         implements ConnectorPageSource
@@ -259,10 +258,7 @@ public class PhoenixPageSource
                     type.writeLong(output, ((BigDecimal) value).unscaledValue().longValue());
                 }
                 else if (type.equals(DATE)) {
-                    // JDBC returns a date using a timestamp at midnight in the JVM timezone
-                    long localMillis = ((Date) value).getTime();
-                    // Convert it to a midnight in UTC
-                    long utcMillis = ISOChronology.getInstance().getZone().getMillisKeepLocal(UTC, localMillis);
+                    long utcMillis = ((Date) value).getTime();
                     type.writeLong(output, TimeUnit.MILLISECONDS.toDays(utcMillis));
                 }
                 else if (type.equals(TIME)) {

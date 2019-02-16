@@ -129,7 +129,6 @@ public class PhoenixMetadata
                 while (resultSet.next()) {
                     tableHandles.add(
                             new PhoenixTableHandle(
-                                    phoenixClient.getConnectorId(),
                                     schemaTableName,
                                     resultSet.getString("TABLE_CAT"),
                                     toPrestoSchemaName(resultSet.getString("TABLE_SCHEM")),
@@ -347,7 +346,6 @@ public class PhoenixMetadata
         setRollback(() -> dropTable(
                 session,
                 new PhoenixTableHandle(
-                        handle.getConnectorId(),
                         new SchemaTableName(handle.getSchemaName(), handle.getTableName()),
                         handle.getCatalogName(),
                         handle.getSchemaName(),
@@ -382,7 +380,6 @@ public class PhoenixMetadata
     {
         ConnectorTableMetadata tableMetadata = getTableMetadata(tableHandle, true);
         return new PhoenixOutputTableHandle(
-                phoenixClient.getConnectorId(),
                 "",
                 tableMetadata.getTable().getSchemaName(),
                 tableMetadata.getTable().getTableName(),
@@ -549,7 +546,6 @@ public class PhoenixMetadata
             phoenixClient.execute(connection, sql.toString());
 
             return new PhoenixOutputTableHandle(
-                    phoenixClient.getConnectorId(),
                     catalog,
                     schema,
                     table,

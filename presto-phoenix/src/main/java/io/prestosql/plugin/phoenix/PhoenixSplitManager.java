@@ -97,7 +97,6 @@ public class PhoenixSplitManager
                 List<HostAddress> addresses = getSplitAddresses(split);
 
                 return new PhoenixSplit(
-                        phoenixClient.getConnectorId(),
                         handle.getCatalogName(),
                         handle.getSchemaName(),
                         handle.getTableName(),
