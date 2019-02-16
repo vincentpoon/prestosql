@@ -25,7 +25,6 @@ import org.intellij.lang.annotations.Language;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
-import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
@@ -73,7 +72,6 @@ public final class PhoenixQueryRunner
     }
 
     public static void createSchema(TestingPhoenixServer phoenixServer, String schema)
-            throws SQLException
     {
         try (Connection connection = DriverManager.getConnection(phoenixServer.getJdbcUrl());
                 Statement statement = connection.createStatement()) {

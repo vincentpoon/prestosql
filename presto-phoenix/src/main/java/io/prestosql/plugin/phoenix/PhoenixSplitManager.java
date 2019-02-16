@@ -105,7 +105,7 @@ public class PhoenixSplitManager
                         new WrappedPhoenixInputSplit(split));
             }).collect(Collectors.toList()));
         }
-        catch (IOException | InterruptedException | SQLException e) {
+        catch (IOException | SQLException e) {
             throw new PrestoException(PHOENIX_ERROR, e);
         }
     }
@@ -131,7 +131,7 @@ public class PhoenixSplitManager
 
     // use Phoenix MR framework to get splits
     private List<InputSplit> getHadoopInputSplits(String inputQuery)
-            throws SQLException, IOException, InterruptedException
+            throws SQLException, IOException
     {
         Configuration conf = new Configuration();
         phoenixClient.setJobQueryConfig(inputQuery, conf);
@@ -140,7 +140,7 @@ public class PhoenixSplitManager
     }
 
     public List<InputSplit> getSplits(JobContext context)
-            throws IOException, InterruptedException
+            throws IOException
     {
         final Configuration configuration = context.getConfiguration();
         final QueryPlan queryPlan = getQueryPlan(context, configuration);
@@ -244,7 +244,6 @@ public class PhoenixSplitManager
             }
         }
         catch (Exception e) {
-            log.error(String.format("Failed to get the query plan with error [%s]", e.getMessage()));
             throw new PrestoException(PhoenixErrorCode.PHOENIX_ERROR, e);
         }
     }

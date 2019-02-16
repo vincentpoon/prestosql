@@ -386,7 +386,6 @@ public class PhoenixPageSource
 
         @Override
         public void readFields(ResultSet rs)
-                throws SQLException
         {
             if (this.resultSet == null) {
                 this.resultSet = (PhoenixResultSet) rs;

@@ -115,7 +115,6 @@ public class TestPhoenixIntegrationSmokeTest
 
     @Test
     public void createTableWithEveryType()
-            throws Exception
     {
         @Language("SQL")
         String query = "" +

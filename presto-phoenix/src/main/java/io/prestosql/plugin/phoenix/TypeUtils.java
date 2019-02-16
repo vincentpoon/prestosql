@@ -28,7 +28,6 @@ import org.apache.phoenix.schema.types.PArrayDataType;
 import org.apache.phoenix.schema.types.PDataType;
 
 import java.sql.Date;
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.Map;
@@ -188,7 +187,6 @@ public final class TypeUtils
     }
 
     public static Object getObjectValue(Type type, Block block, int position)
-            throws SQLException
     {
         if (block.isNull(position)) {
             return null;

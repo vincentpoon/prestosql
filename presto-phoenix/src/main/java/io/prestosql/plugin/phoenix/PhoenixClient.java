@@ -25,7 +25,7 @@ import org.apache.phoenix.mapreduce.util.PhoenixConfigurationUtil;
 
 import javax.inject.Inject;
 
-import java.io.IOException;
+import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -60,7 +60,14 @@ public class PhoenixClient
     public PhoenixConnection getConnection()
             throws SQLException
     {
-        return driver.connect(connectionUrl, connectionProperties).unwrap(PhoenixConnection.class);
+        Connection connection = driver.connect(connectionUrl, connectionProperties);
+        try {
+            return connection.unwrap(PhoenixConnection.class);
+        }
+        catch (Exception e) {
+            connection.close();
+            throw e;
+        }
     }
 
     protected void execute(String query)
@@ -90,7 +97,7 @@ public class PhoenixClient
             Optional<Set<ColumnHandle>> desiredColumns,
             TupleDomain<ColumnHandle> tupleDomain,
             List<PhoenixColumnHandle> columnHandles)
-            throws SQLException, IOException, InterruptedException
+            throws SQLException
     {
         return QueryBuilder.buildSql(
                 connection,

@@ -557,7 +557,7 @@ public class PhoenixMetadata
         }
     }
 
-    protected ResultSet getTables(PhoenixConnection connection, String schemaName, String tableName)
+    private ResultSet getTables(PhoenixConnection connection, String schemaName, String tableName)
             throws SQLException
     {
         DatabaseMetaData metadata = connection.getMetaData();
@@ -611,7 +611,7 @@ public class PhoenixMetadata
                 null);
     }
 
-    protected SchemaTableName getSchemaTableName(ResultSet resultSet)
+    private SchemaTableName getSchemaTableName(ResultSet resultSet)
             throws SQLException
     {
         return new SchemaTableName(
