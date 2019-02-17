@@ -50,6 +50,7 @@ import org.apache.phoenix.jdbc.PhoenixConnection;
 import org.apache.phoenix.query.QueryConstants;
 import org.apache.phoenix.schema.PTable;
 import org.apache.phoenix.schema.TableProperty;
+import org.apache.phoenix.util.SchemaUtil;
 
 import java.io.IOException;
 import java.sql.DatabaseMetaData;
@@ -68,7 +69,7 @@ import java.util.stream.Collectors;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static io.prestosql.plugin.phoenix.MetadataUtil.escapeNamePattern;
-import static io.prestosql.plugin.phoenix.MetadataUtil.getFullTableName;
+import static io.prestosql.plugin.phoenix.MetadataUtil.getEscapedTableName;
 import static io.prestosql.plugin.phoenix.MetadataUtil.toPhoenixSchemaName;
 import static io.prestosql.plugin.phoenix.MetadataUtil.toPrestoSchemaName;
 import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_ERROR;
@@ -87,7 +88,6 @@ import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.DECIMAL_DIGITS;
 import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.TABLE_NAME;
 import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.TABLE_SCHEM;
 import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.TYPE_ID;
-import static org.apache.phoenix.query.QueryConstants.SYSTEM_SCHEMA_NAME;
 import static org.apache.phoenix.util.PhoenixRuntime.getTable;
 
 public class PhoenixMetadata
@@ -117,20 +117,14 @@ public class PhoenixMetadata
     public PhoenixTableHandle getTableHandle(ConnectorSession session, SchemaTableName schemaTableName)
     {
         try (PhoenixConnection connection = phoenixClient.getConnection()) {
-            DatabaseMetaData metadata = connection.getMetaData();
-            String schemaName = schemaTableName.getSchemaName();
-            String tableName = schemaTableName.getTableName();
-            if (metadata.storesUpperCaseIdentifiers()) {
-                schemaName = schemaName.toUpperCase(ENGLISH);
-                tableName = tableName.toUpperCase(ENGLISH);
-            }
+            String schemaName = schemaTableName.getSchemaName().toUpperCase(ENGLISH);
+            String tableName = schemaTableName.getTableName().toUpperCase(ENGLISH);
             try (ResultSet resultSet = getTables(connection, schemaName, tableName)) {
                 List<PhoenixTableHandle> tableHandles = new ArrayList<>();
                 while (resultSet.next()) {
                     tableHandles.add(
                             new PhoenixTableHandle(
                                     schemaTableName,
-                                    resultSet.getString("TABLE_CAT"),
                                     toPrestoSchemaName(resultSet.getString("TABLE_SCHEM")),
                                     resultSet.getString("TABLE_NAME")));
                 }
@@ -184,7 +178,7 @@ public class PhoenixMetadata
         ImmutableMap.Builder<String, Object> properties = ImmutableMap.builder();
 
         try (PhoenixConnection pconn = phoenixClient.getConnection(); HBaseAdmin admin = pconn.getQueryServices().getAdmin()) {
-            PTable table = getTable(pconn, getFullTableName(handle.getCatalogName(), handle.getSchemaName(), handle.getTableName()));
+            PTable table = getTable(pconn, SchemaUtil.getTableName(toPhoenixSchemaName(handle.getSchemaName()), handle.getTableName()));
 
             if (table.getBucketNum() != null) {
                 properties.put(PhoenixTableProperties.SALT_BUCKETS, table.getBucketNum());
@@ -235,10 +229,7 @@ public class PhoenixMetadata
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> schemaName)
     {
         try (PhoenixConnection connection = phoenixClient.getConnection()) {
-            DatabaseMetaData metadata = connection.getMetaData();
-            if (metadata.storesUpperCaseIdentifiers()) {
-                schemaName = schemaName.map(s -> s.toUpperCase(ENGLISH));
-            }
+            schemaName = schemaName.map(s -> s.toUpperCase(ENGLISH));
             try (ResultSet resultSet = getTables(connection, schemaName.orElse(null), null)) {
                 ImmutableList.Builder<SchemaTableName> list = ImmutableList.builder();
                 while (resultSet.next()) {
@@ -334,7 +325,7 @@ public class PhoenixMetadata
         PhoenixTableHandle handle = (PhoenixTableHandle) tableHandle;
         StringBuilder sql = new StringBuilder()
                 .append("DROP TABLE ")
-                .append(getFullTableName(handle.getCatalogName(), handle.getSchemaName(), handle.getTableName()));
+                .append(getEscapedTableName(handle.getSchemaName(), handle.getTableName()));
 
         phoenixClient.execute(sql.toString());
     }
@@ -347,7 +338,6 @@ public class PhoenixMetadata
                 session,
                 new PhoenixTableHandle(
                         new SchemaTableName(handle.getSchemaName(), handle.getTableName()),
-                        handle.getCatalogName(),
                         handle.getSchemaName(),
                         handle.getTableName())));
         return handle;
@@ -378,11 +368,11 @@ public class PhoenixMetadata
     @Override
     public ConnectorInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
+        PhoenixTableHandle handle = (PhoenixTableHandle) tableHandle;
         ConnectorTableMetadata tableMetadata = getTableMetadata(tableHandle, true);
         return new PhoenixOutputTableHandle(
-                "",
-                tableMetadata.getTable().getSchemaName(),
-                tableMetadata.getTable().getTableName(),
+                handle.getSchemaName(),
+                handle.getTableName(),
                 tableMetadata.getColumns().stream().map(ColumnMetadata::getName).collect(Collectors.toList()),
                 tableMetadata.getColumns().stream().map(ColumnMetadata::getType).collect(Collectors.toList()));
     }
@@ -399,7 +389,7 @@ public class PhoenixMetadata
         PhoenixTableHandle handle = (PhoenixTableHandle) tableHandle;
         StringBuilder sql = new StringBuilder()
                 .append("ALTER TABLE ")
-                .append(getFullTableName(handle.getCatalogName(), handle.getSchemaName(), handle.getTableName()))
+                .append(getEscapedTableName(handle.getSchemaName(), handle.getTableName()))
                 .append(" ADD ").append(column.getName()).append(" ").append(toSqlType(column.getType()));
 
         phoenixClient.execute(sql.toString());
@@ -412,7 +402,7 @@ public class PhoenixMetadata
         PhoenixColumnHandle columnHandle = (PhoenixColumnHandle) column;
         StringBuilder sql = new StringBuilder()
                 .append("ALTER TABLE ")
-                .append(getFullTableName(handle.getCatalogName(), handle.getSchemaName(), handle.getTableName()))
+                .append(getEscapedTableName(handle.getSchemaName(), handle.getTableName()))
                 .append(" DROP COLUMN ").append(columnHandle.getColumnName());
 
         phoenixClient.execute(sql.toString());
@@ -421,12 +411,12 @@ public class PhoenixMetadata
     @Override
     public ColumnHandle getUpdateRowIdColumnHandle(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
-        PhoenixTableHandle pTableHandle = (PhoenixTableHandle) tableHandle;
+        PhoenixTableHandle handle = (PhoenixTableHandle) tableHandle;
         Map<String, PhoenixColumnHandle> namesToHandles =
-                Maps.uniqueIndex(getColumns(pTableHandle, true), pHandle -> pHandle.getColumnName());
+                Maps.uniqueIndex(getColumns(handle, true), mapHandle -> mapHandle.getColumnName());
         try (PhoenixConnection connection = phoenixClient.getConnection();
                 ResultSet resultSet =
-                        connection.getMetaData().getPrimaryKeys(pTableHandle.getCatalogName(), toPhoenixSchemaName(pTableHandle.getSchemaName()), pTableHandle.getTableName())) {
+                        connection.getMetaData().getPrimaryKeys("", toPhoenixSchemaName(handle.getSchemaName()), handle.getTableName())) {
             List<Field> fields = new ArrayList<>();
             while (resultSet.next()) {
                 String columnName = resultSet.getString("COLUMN_NAME");
@@ -437,7 +427,7 @@ public class PhoenixMetadata
                 fields.add(RowType.field(columnName, columnHandle.getColumnType()));
             }
             if (fields.isEmpty()) {
-                throw new PrestoException(NOT_FOUND, "No PK fields found for table " + pTableHandle.getTableName());
+                throw new PrestoException(NOT_FOUND, "No PK fields found for table " + handle.getTableName());
             }
             RowType rowType = RowType.from(fields);
             return new PhoenixColumnHandle(UPDATE_ROW_ID, rowType);
@@ -469,8 +459,8 @@ public class PhoenixMetadata
     {
         SchemaTableName schemaTableName = tableMetadata.getTable();
         LinkedList<ColumnMetadata> tableColumns = new LinkedList<>(tableMetadata.getColumns());
-        String schema = schemaTableName.getSchemaName();
-        String table = schemaTableName.getTableName();
+        String schema = schemaTableName.getSchemaName().toUpperCase(ENGLISH);
+        String table = schemaTableName.getTableName().toUpperCase(ENGLISH);
 
         Map<String, Object> tableProperties = tableMetadata.getProperties();
 
@@ -479,12 +469,6 @@ public class PhoenixMetadata
         }
 
         try (PhoenixConnection connection = phoenixClient.getConnection()) {
-            boolean uppercase = connection.getMetaData().storesUpperCaseIdentifiers();
-            if (uppercase) {
-                schema = schema.toUpperCase(ENGLISH);
-                table = table.toUpperCase(ENGLISH);
-            }
-            String catalog = connection.getCatalog();
             StringBuilder sql = new StringBuilder();
             Optional<Boolean> immutableRows = PhoenixTableProperties.getImmutableRows(tableProperties);
             if (immutableRows.isPresent() && immutableRows.get()) {
@@ -493,7 +477,7 @@ public class PhoenixMetadata
             else {
                 sql.append("CREATE TABLE ");
             }
-            sql.append(getFullTableName(catalog, schema, table)).append(" (\n ");
+            sql.append(getEscapedTableName(schema, table)).append(" (\n ");
             ImmutableList.Builder<String> columnNames = ImmutableList.builder();
             ImmutableList.Builder<Type> columnTypes = ImmutableList.builder();
             ImmutableList.Builder<String> columnList = ImmutableList.builder();
@@ -507,10 +491,7 @@ public class PhoenixMetadata
             List<String> pkNames = new ArrayList<>();
 
             for (ColumnMetadata column : tableColumns) {
-                String columnName = column.getName();
-                if (uppercase) {
-                    columnName = columnName.toUpperCase(ENGLISH);
-                }
+                String columnName = column.getName().toUpperCase(ENGLISH);
                 columnNames.add(columnName);
                 columnTypes.add(column.getType());
                 String typeStatement = toSqlType(column.getType());
@@ -546,7 +527,6 @@ public class PhoenixMetadata
             phoenixClient.execute(connection, sql.toString());
 
             return new PhoenixOutputTableHandle(
-                    catalog,
                     schema,
                     table,
                     columnNames.build(),
@@ -572,7 +552,13 @@ public class PhoenixMetadata
     public List<PhoenixColumnHandle> getColumns(PhoenixTableHandle tableHandle, boolean requiredRowKey)
     {
         try (PhoenixConnection connection = phoenixClient.getConnection()) {
-            try (ResultSet resultSet = getColumns(tableHandle, connection.getMetaData())) {
+            DatabaseMetaData metaData = connection.getMetaData();
+            String escape = metaData.getSearchStringEscape();
+            try (ResultSet resultSet = metaData.getColumns(
+                    connection.getCatalog(),
+                    escapeNamePattern(toPhoenixSchemaName(tableHandle.getSchemaName()), escape),
+                    escapeNamePattern(tableHandle.getTableName(), escape),
+                    null)) {
                 List<PhoenixColumnHandle> columns = new ArrayList<>();
                 boolean found = false;
                 while (resultSet.next()) {
@@ -600,23 +586,12 @@ public class PhoenixMetadata
         }
     }
 
-    private ResultSet getColumns(PhoenixTableHandle tableHandle, DatabaseMetaData metadata)
-            throws SQLException
-    {
-        String escape = metadata.getSearchStringEscape();
-        return metadata.getColumns(
-                tableHandle.getCatalogName(),
-                escapeNamePattern(toPhoenixSchemaName(tableHandle.getSchemaName()), escape),
-                escapeNamePattern(tableHandle.getTableName(), escape),
-                null);
-    }
-
     private SchemaTableName getSchemaTableName(ResultSet resultSet)
             throws SQLException
     {
         return new SchemaTableName(
-                toPrestoSchemaName(resultSet.getString(TABLE_SCHEM)).toLowerCase(ENGLISH),
-                resultSet.getString(TABLE_NAME).toLowerCase(ENGLISH));
+                toPrestoSchemaName(resultSet.getString(TABLE_SCHEM)),
+                resultSet.getString(TABLE_NAME));
     }
 
     public Set<String> getSchemaNames()
@@ -627,10 +602,7 @@ public class PhoenixMetadata
             schemaNames.add(DEFAULT_SCHEMA);
             while (resultSet.next()) {
                 String schemaName = resultSet.getString(TABLE_SCHEM);
-                // skip internal schemas
-                if (schemaName != null && !SYSTEM_SCHEMA_NAME.equalsIgnoreCase(schemaName)) {
-                    schemaNames.add(schemaName.toLowerCase(ENGLISH));
-                }
+                schemaNames.add(schemaName);
             }
             return schemaNames.build();
         }

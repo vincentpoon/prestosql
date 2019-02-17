@@ -86,7 +86,6 @@ public class PhoenixSplitManager
         try (PhoenixConnection connection = phoenixClient.getConnection()) {
             String inputQuery = phoenixClient.buildSql(
                     connection,
-                    handle.getCatalogName(),
                     handle.getSchemaName(),
                     handle.getTableName(),
                     layoutHandle.getDesiredColumns(),
@@ -97,7 +96,6 @@ public class PhoenixSplitManager
                 List<HostAddress> addresses = getSplitAddresses(split);
 
                 return new PhoenixSplit(
-                        handle.getCatalogName(),
                         handle.getSchemaName(),
                         handle.getTableName(),
                         layoutHandle.getTupleDomain(),

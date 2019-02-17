@@ -18,6 +18,11 @@ import io.airlift.configuration.Config;
 
 import javax.validation.constraints.NotNull;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+
+import java.util.Map.Entry;
 import java.util.Properties;
 
 public class PhoenixConfig
@@ -44,21 +49,13 @@ public class PhoenixConfig
         return connectionProperties;
     }
 
-    @Config("phoenix-connection-properties")
-    public PhoenixConfig setConnectionProperties(String properties)
+    @Config("phoenix-config-path")
+    public PhoenixConfig setConnectionProperties(String configPath)
     {
-        for (String entry : Splitter.on(";").split(properties)) {
-            if (entry.length() > 0) {
-                int index = entry.indexOf('=');
-                if (index > 0) {
-                    String name = entry.substring(0, index);
-                    String value = entry.substring(index + 1);
-                    connectionProperties.setProperty(name, value);
-                }
-                if (index <= 0) {
-                    connectionProperties.setProperty(entry, "");
-                }
-            }
+        Configuration config = HBaseConfiguration.create();
+        config.addResource(new Path(configPath));
+        for (Entry<String, String> entry : config) {
+            connectionProperties.put(entry.getKey(), entry.getValue());
         }
         return this;
     }

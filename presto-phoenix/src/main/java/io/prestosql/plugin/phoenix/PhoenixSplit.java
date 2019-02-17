@@ -35,7 +35,6 @@ import static java.util.Objects.requireNonNull;
 public class PhoenixSplit
         implements ConnectorSplit
 {
-    private final String catalogName;
     private final String schemaName;
     private final String tableName;
     private final TupleDomain<ColumnHandle> tupleDomain;
@@ -44,26 +43,17 @@ public class PhoenixSplit
 
     @JsonCreator
     public PhoenixSplit(
-            @JsonProperty("catalogName") @Nullable String catalogName,
             @JsonProperty("schemaName") @Nullable String schemaName,
             @JsonProperty("tableName") String tableName,
             @JsonProperty("tupleDomain") TupleDomain<ColumnHandle> tupleDomain,
             @JsonProperty("addresses") List<HostAddress> addresses,
             @JsonProperty("phoenixInputSplit") WrappedPhoenixInputSplit wrappedPhoenixInputSplit)
     {
-        this.catalogName = catalogName;
         this.schemaName = schemaName;
         this.tableName = requireNonNull(tableName, "table name is null");
         this.tupleDomain = requireNonNull(tupleDomain, "tupleDomain is null");
         this.addresses = addresses;
         this.phoenixInputSplit = wrappedPhoenixInputSplit;
-    }
-
-    @JsonProperty
-    @Nullable
-    public String getCatalogName()
-    {
-        return catalogName;
     }
 
     @JsonProperty
@@ -125,7 +115,6 @@ public class PhoenixSplit
     public int hashCode()
     {
         return Objects.hash(
-                catalogName,
                 schemaName,
                 tableName,
                 tupleDomain,
@@ -143,8 +132,7 @@ public class PhoenixSplit
             return false;
         }
         PhoenixSplit other = (PhoenixSplit) obj;
-        return Objects.equals(this.catalogName, other.catalogName) &&
-                Objects.equals(this.schemaName, other.schemaName) &&
+        return Objects.equals(this.schemaName, other.schemaName) &&
                 Objects.equals(this.tableName, other.tableName) &&
                 Objects.equals(this.tupleDomain, other.tupleDomain) &&
                 Objects.equals(this.addresses, other.addresses) &&
@@ -155,9 +143,6 @@ public class PhoenixSplit
     public String toString()
     {
         ToStringHelper helper = toStringHelper(this);
-        if (catalogName != null) {
-            helper.add("catalogName", catalogName);
-        }
         if (schemaName != null) {
             helper.add("schemaName", schemaName);
         }

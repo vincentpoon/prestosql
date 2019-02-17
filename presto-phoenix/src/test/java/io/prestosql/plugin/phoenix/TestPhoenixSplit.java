@@ -40,7 +40,7 @@ public class TestPhoenixSplit
         List<HostAddress> addresses = ImmutableList.of(HostAddress.fromString("host:9000"));
         List<Scan> scans = ImmutableList.of(new Scan().withStartRow(Bytes.toBytes("A")).withStopRow(Bytes.toBytes("Z")));
         PhoenixInputSplit phoenixInputSplit = new PhoenixInputSplit(scans);
-        PhoenixSplit expected = new PhoenixSplit("testCatalogName", "testSchemaName", "testTableName", TupleDomain.all(), addresses, new WrappedPhoenixInputSplit(phoenixInputSplit));
+        PhoenixSplit expected = new PhoenixSplit("testSchemaName", "testTableName", TupleDomain.all(), addresses, new WrappedPhoenixInputSplit(phoenixInputSplit));
 
         assertTrue(objectMapper.canSerialize(PhoenixSplit.class));
 

@@ -117,7 +117,6 @@ public class PhoenixPageSource
     {
         String inputQuery = phoenixClient.buildSql(
                 connection,
-                split.getCatalogName(),
                 split.getSchemaName(),
                 split.getTableName(),
                 Optional.empty(),

@@ -15,6 +15,9 @@ package io.prestosql.plugin.phoenix;
 
 import io.prestosql.spi.type.RowType;
 import io.prestosql.spi.type.Type;
+import org.apache.phoenix.util.SchemaUtil;
+
+import javax.annotation.Nullable;
 
 import java.util.List;
 import java.util.Optional;
@@ -25,6 +28,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static io.prestosql.plugin.phoenix.PhoenixMetadata.DEFAULT_SCHEMA;
 import static io.prestosql.plugin.phoenix.PhoenixMetadata.UPDATE_ROW_ID;
+import static java.util.Objects.requireNonNull;
 
 public class MetadataUtil
 {
@@ -47,20 +51,9 @@ public class MetadataUtil
         return Stream.of(handle);
     }
 
-    public static String getFullTableName(String catalog, String schema, String table)
+    public static String getEscapedTableName(String schema, String table)
     {
-        StringBuilder sb = new StringBuilder();
-        if (!isNullOrEmpty(catalog)) {
-            sb.append(catalog).append(".");
-        }
-        if (!isNullOrEmpty(schema)) {
-            schema = toPhoenixSchemaName(schema);
-            if (!isNullOrEmpty(schema)) {
-                sb.append(schema).append(".");
-            }
-        }
-        sb.append(table);
-        return sb.toString();
+        return SchemaUtil.getEscapedTableName(toPhoenixSchemaName(schema), table);
     }
 
     public static String toPhoenixSchemaName(String prestoSchemaName)
@@ -73,15 +66,15 @@ public class MetadataUtil
         return isNullOrEmpty(phoenixSchemaName) ? DEFAULT_SCHEMA : phoenixSchemaName;
     }
 
-    public static Optional<PhoenixColumnHandle> getPrimaryKeyHandle(List<PhoenixColumnHandle> cols)
+    public static Optional<PhoenixColumnHandle> getPrimaryKeyHandle(List<PhoenixColumnHandle> columns)
     {
-        Optional<PhoenixColumnHandle> pkHandle = cols.stream().filter(MetadataUtil::isUpdateRowId).findFirst();
-        return pkHandle;
+        Optional<PhoenixColumnHandle> columnHandle = columns.stream().filter(MetadataUtil::isUpdateRowId).findFirst();
+        return columnHandle;
     }
 
-    private static boolean isUpdateRowId(PhoenixColumnHandle pHandle)
+    private static boolean isUpdateRowId(PhoenixColumnHandle columnHandle)
     {
-        return isPrimaryKeyColumn(pHandle.getColumnName(), pHandle.getColumnType());
+        return isPrimaryKeyColumn(columnHandle.getColumnName(), columnHandle.getColumnType());
     }
 
     public static boolean isPrimaryKeyColumn(String columnName, Type columnType)
@@ -89,9 +82,10 @@ public class MetadataUtil
         return UPDATE_ROW_ID.equals(columnName) && columnType instanceof RowType;
     }
 
-    public static String escapeNamePattern(String name, String escape)
+    public static String escapeNamePattern(@Nullable String name, String escape)
     {
-        if ((name == null) || (escape == null)) {
+        requireNonNull(escape, "escape is null");
+        if ((name == null)) {
             return name;
         }
         checkArgument(!escape.equals("_"), "Escape string must not be '_'");

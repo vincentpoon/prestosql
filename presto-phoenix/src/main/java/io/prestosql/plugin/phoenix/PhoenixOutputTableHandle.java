@@ -32,7 +32,6 @@ import static java.util.Objects.requireNonNull;
 public class PhoenixOutputTableHandle
         implements ConnectorOutputTableHandle, ConnectorInsertTableHandle
 {
-    private final String catalogName;
     private final String schemaName;
     private final String tableName;
     private final List<String> columnNames;
@@ -40,13 +39,11 @@ public class PhoenixOutputTableHandle
 
     @JsonCreator
     public PhoenixOutputTableHandle(
-            @JsonProperty("catalogName") @Nullable String catalogName,
             @JsonProperty("schemaName") @Nullable String schemaName,
             @JsonProperty("tableName") String tableName,
             @JsonProperty("columnNames") List<String> columnNames,
             @JsonProperty("columnTypes") List<Type> columnTypes)
     {
-        this.catalogName = catalogName;
         this.schemaName = schemaName;
         this.tableName = requireNonNull(tableName, "tableName is null");
 
@@ -55,13 +52,6 @@ public class PhoenixOutputTableHandle
         checkArgument(columnNames.size() == columnTypes.size(), "columnNames and columnTypes sizes don't match");
         this.columnNames = ImmutableList.copyOf(columnNames);
         this.columnTypes = ImmutableList.copyOf(columnTypes);
-    }
-
-    @JsonProperty
-    @Nullable
-    public String getCatalogName()
-    {
-        return catalogName;
     }
 
     @JsonProperty
@@ -92,18 +82,16 @@ public class PhoenixOutputTableHandle
     @Override
     public String toString()
     {
-        return format("phoenix:%s.%s.%s", catalogName, schemaName, tableName);
+        return format("phoenix:%s.%s", schemaName, tableName);
     }
 
     @Override
     public int hashCode()
     {
         return Objects.hash(
-                catalogName,
                 schemaName,
                 tableName,
-                columnNames,
-                columnTypes);
+                columnNames);
     }
 
     @Override
@@ -116,10 +104,8 @@ public class PhoenixOutputTableHandle
             return false;
         }
         PhoenixOutputTableHandle other = (PhoenixOutputTableHandle) obj;
-        return Objects.equals(this.catalogName, other.catalogName) &&
-                Objects.equals(this.schemaName, other.schemaName) &&
+        return Objects.equals(this.schemaName, other.schemaName) &&
                 Objects.equals(this.tableName, other.tableName) &&
-                Objects.equals(this.columnNames, other.columnNames) &&
-                Objects.equals(this.columnTypes, other.columnTypes);
+                Objects.equals(this.columnNames, other.columnNames);
     }
 }

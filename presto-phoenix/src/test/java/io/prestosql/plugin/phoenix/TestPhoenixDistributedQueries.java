@@ -28,6 +28,12 @@ public class TestPhoenixDistributedQueries
     {
         super(() -> PhoenixQueryRunner.createPhoenixQueryRunner(ImmutableMap.of(), TpchTable.getTables()));
     }
+    
+    @Override
+    public void testExplainAnalyze() {
+        // TODO Auto-generated method stub
+        super.testExplainAnalyze();
+    }
 
     @Override
     protected boolean supportsViews()

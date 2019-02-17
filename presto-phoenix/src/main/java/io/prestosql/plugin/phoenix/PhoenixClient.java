@@ -91,7 +91,6 @@ public class PhoenixClient
 
     public String buildSql(
             PhoenixConnection connection,
-            String catalogName,
             String schemaName,
             String tableName,
             Optional<Set<ColumnHandle>> desiredColumns,
@@ -101,7 +100,6 @@ public class PhoenixClient
     {
         return QueryBuilder.buildSql(
                 connection,
-                catalogName,
                 schemaName,
                 tableName,
                 desiredColumns,

@@ -34,7 +34,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
-import static io.prestosql.plugin.phoenix.MetadataUtil.getFullTableName;
+import static io.prestosql.plugin.phoenix.MetadataUtil.getEscapedTableName;
 import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_ERROR;
 import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_NON_TRANSIENT_ERROR;
 import static io.prestosql.plugin.phoenix.PhoenixMetadata.ROWKEY;
@@ -91,7 +91,7 @@ public class PhoenixPageSink
         // ON DUPLICATE KEY UPDATE counter1 = counter1 + 1, counter2 = counter2 + 1;
         StringBuilder sql = new StringBuilder()
                 .append("UPSERT INTO ")
-                .append(getFullTableName(handle.getCatalogName(), handle.getSchemaName(), handle.getTableName()))
+                .append(getEscapedTableName(handle.getSchemaName(), handle.getTableName()))
                 .append("(").append(columns).append(")")
                 .append(" VALUES (")
                 .append(vars).append(")");

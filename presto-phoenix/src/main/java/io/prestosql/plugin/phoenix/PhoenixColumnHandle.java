@@ -66,7 +66,7 @@ public final class PhoenixColumnHandle
             return false;
         }
         PhoenixColumnHandle o = (PhoenixColumnHandle) obj;
-        return Objects.equals(this.columnName, o.columnName) && Objects.equals(this.columnType, o.columnType);
+        return Objects.equals(this.columnName, o.columnName);
     }
 
     @Override

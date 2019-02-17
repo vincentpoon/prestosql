@@ -31,7 +31,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
-import static io.prestosql.plugin.phoenix.MetadataUtil.getFullTableName;
+import static io.prestosql.plugin.phoenix.MetadataUtil.getEscapedTableName;
 import static io.prestosql.plugin.phoenix.MetadataUtil.getPrimaryKeyHandle;
 import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_ERROR;
 import static io.prestosql.plugin.phoenix.TypeUtils.getObjectValue;
@@ -97,7 +97,7 @@ public class PhoenixUpdatablePageSource
         String vars = Joiner.on(",").join(nCopies(pkFields.size(), "?"));
         StringBuilder deleteSql = new StringBuilder()
                 .append("DELETE FROM ")
-                .append(getFullTableName(split.getCatalogName(), split.getSchemaName(), split.getTableName()))
+                .append(getEscapedTableName(split.getSchemaName(), split.getTableName()))
                 .append(" WHERE ")
                 .append("(").append(columns).append(")")
                 .append(" IN ")

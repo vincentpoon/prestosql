@@ -29,19 +29,16 @@ public final class PhoenixTableHandle
         implements ConnectorTableHandle
 {
     private final SchemaTableName schemaTableName;
-    private final String catalogName;
     private final String schemaName;
     private final String tableName;
 
     @JsonCreator
     public PhoenixTableHandle(
             @JsonProperty("schemaTableName") SchemaTableName schemaTableName,
-            @JsonProperty("catalogName") @Nullable String catalogName,
             @JsonProperty("schemaName") @Nullable String schemaName,
             @JsonProperty("tableName") String tableName)
     {
         this.schemaTableName = requireNonNull(schemaTableName, "schemaTableName is null");
-        this.catalogName = catalogName;
         this.schemaName = schemaName;
         this.tableName = requireNonNull(tableName, "tableName is null");
     }
@@ -50,13 +47,6 @@ public final class PhoenixTableHandle
     public SchemaTableName getSchemaTableName()
     {
         return schemaTableName;
-    }
-
-    @JsonProperty
-    @Nullable
-    public String getCatalogName()
-    {
-        return catalogName;
     }
 
     @JsonProperty
@@ -94,6 +84,6 @@ public final class PhoenixTableHandle
     @Override
     public String toString()
     {
-        return Joiner.on(":").useForNull("null").join(schemaTableName, catalogName, schemaName, tableName);
+        return Joiner.on(":").useForNull("null").join(schemaTableName, schemaName, tableName);
     }
 }
