@@ -15,6 +15,7 @@ package io.prestosql.plugin.phoenix;
 
 import io.airlift.bootstrap.LifeCycleManager;
 import io.airlift.log.Logger;
+import io.prestosql.plugin.jdbc.JdbcTransactionHandle;
 import io.prestosql.spi.connector.Connector;
 import io.prestosql.spi.connector.ConnectorMetadata;
 import io.prestosql.spi.connector.ConnectorPageSinkProvider;
@@ -76,7 +77,7 @@ public class PhoenixConnector
     public ConnectorTransactionHandle beginTransaction(IsolationLevel isolationLevel, boolean readOnly)
     {
         checkConnectorSupports(READ_COMMITTED, isolationLevel);
-        PhoenixTransactionHandle transaction = new PhoenixTransactionHandle();
+        JdbcTransactionHandle transaction = new JdbcTransactionHandle();
         transactions.put(transaction, metadataFactory.create());
         return transaction;
     }

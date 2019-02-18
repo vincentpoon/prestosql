@@ -13,14 +13,12 @@
  */
 package io.prestosql.plugin.phoenix;
 
-import com.google.common.base.Splitter;
 import io.airlift.configuration.Config;
-
-import javax.validation.constraints.NotNull;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
+
+import javax.validation.constraints.NotNull;
 
 import java.util.Map.Entry;
 import java.util.Properties;

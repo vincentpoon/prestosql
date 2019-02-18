@@ -13,6 +13,9 @@
  */
 package io.prestosql.plugin.phoenix;
 
+import io.prestosql.plugin.jdbc.JdbcColumnHandle;
+import io.prestosql.plugin.jdbc.JdbcTableHandle;
+import io.prestosql.plugin.jdbc.JdbcTransactionHandle;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ConnectorHandleResolver;
 import io.prestosql.spi.connector.ConnectorInsertTableHandle;
@@ -28,13 +31,13 @@ public class PhoenixHandleResolver
     @Override
     public Class<? extends ConnectorTransactionHandle> getTransactionHandleClass()
     {
-        return PhoenixTransactionHandle.class;
+        return JdbcTransactionHandle.class;
     }
 
     @Override
     public Class<? extends ConnectorTableHandle> getTableHandleClass()
     {
-        return PhoenixTableHandle.class;
+        return JdbcTableHandle.class;
     }
 
     @Override
@@ -46,7 +49,7 @@ public class PhoenixHandleResolver
     @Override
     public Class<? extends ColumnHandle> getColumnHandleClass()
     {
-        return PhoenixColumnHandle.class;
+        return JdbcColumnHandle.class;
     }
 
     @Override

@@ -15,46 +15,31 @@ package io.prestosql.plugin.phoenix;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.prestosql.plugin.jdbc.JdbcTableHandle;
+import io.prestosql.plugin.jdbc.JdbcTableLayoutHandle;
 import io.prestosql.spi.connector.ColumnHandle;
-import io.prestosql.spi.connector.ConnectorTableLayoutHandle;
 import io.prestosql.spi.predicate.TupleDomain;
 
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-import static java.util.Objects.requireNonNull;
-
 public class PhoenixTableLayoutHandle
-        implements ConnectorTableLayoutHandle
+        extends JdbcTableLayoutHandle
 {
-    private final PhoenixTableHandle table;
-    private final TupleDomain<ColumnHandle> tupleDomain;
     private Optional<Set<ColumnHandle>> desiredColumns;
 
     @JsonCreator
     public PhoenixTableLayoutHandle(
-            @JsonProperty("table") PhoenixTableHandle table,
+            @JsonProperty("table") JdbcTableHandle table,
             @JsonProperty("tupleDomain") TupleDomain<ColumnHandle> domain,
             @JsonProperty("desiredColumns") Optional<Set<ColumnHandle>> desiredColumns)
     {
+        super(table, domain);
         this.desiredColumns = desiredColumns;
-        this.table = requireNonNull(table, "table is null");
-        this.tupleDomain = requireNonNull(domain, "tupleDomain is null");
     }
 
     @JsonProperty
-    public PhoenixTableHandle getTable()
-    {
-        return table;
-    }
-
-    @JsonProperty
-    public TupleDomain<ColumnHandle> getTupleDomain()
-    {
-        return tupleDomain;
-    }
-
     public Optional<Set<ColumnHandle>> getDesiredColumns()
     {
         return desiredColumns;
@@ -69,20 +54,16 @@ public class PhoenixTableLayoutHandle
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
+        if (!super.equals(o)) {
+            return false;
+        }
         PhoenixTableLayoutHandle that = (PhoenixTableLayoutHandle) o;
-        return Objects.equals(table, that.table) &&
-                Objects.equals(tupleDomain, that.tupleDomain);
+        return Objects.equals(desiredColumns, that.desiredColumns);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(table, tupleDomain);
-    }
-
-    @Override
-    public String toString()
-    {
-        return table.toString();
+        return Objects.hash(super.hashCode(), desiredColumns);
     }
 }

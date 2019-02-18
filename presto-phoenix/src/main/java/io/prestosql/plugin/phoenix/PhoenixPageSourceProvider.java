@@ -13,6 +13,7 @@
  */
 package io.prestosql.plugin.phoenix;
 
+import io.prestosql.plugin.jdbc.JdbcColumnHandle;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ConnectorPageSource;
 import io.prestosql.spi.connector.ConnectorPageSourceProvider;
@@ -42,7 +43,7 @@ public class PhoenixPageSourceProvider
     @Override
     public ConnectorPageSource createPageSource(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorSplit split, List<ColumnHandle> columns)
     {
-        List<PhoenixColumnHandle> phoenixCols = columns.stream().map(column -> (PhoenixColumnHandle) column).collect(Collectors.toList());
+        List<JdbcColumnHandle> phoenixCols = columns.stream().map(column -> (JdbcColumnHandle) column).collect(Collectors.toList());
         if (getPrimaryKeyHandle(phoenixCols).isPresent()) {
             return new PhoenixUpdatablePageSource(
                     session,

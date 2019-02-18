@@ -14,53 +14,67 @@
 package io.prestosql.plugin.phoenix;
 
 import io.airlift.log.Logger;
+import io.prestosql.plugin.jdbc.BaseJdbcClient;
+import io.prestosql.plugin.jdbc.BaseJdbcConfig;
+import io.prestosql.plugin.jdbc.ColumnMapping;
+import io.prestosql.plugin.jdbc.DriverConnectionFactory;
+import io.prestosql.plugin.jdbc.JdbcColumnHandle;
+import io.prestosql.plugin.jdbc.JdbcConnectorId;
+import io.prestosql.plugin.jdbc.JdbcTableHandle;
+import io.prestosql.plugin.jdbc.JdbcTypeHandle;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ColumnHandle;
+import io.prestosql.spi.connector.ConnectorSession;
+import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.predicate.TupleDomain;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.phoenix.jdbc.PhoenixConnection;
 import org.apache.phoenix.jdbc.PhoenixEmbeddedDriver;
 import org.apache.phoenix.jdbc.PhoenixEmbeddedDriver.ConnectionInfo;
 import org.apache.phoenix.mapreduce.util.PhoenixConfigurationUtil;
+import org.apache.phoenix.schema.types.PDataType;
 
 import javax.inject.Inject;
 
 import java.sql.Connection;
-import java.sql.Driver;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.Types;
 import java.util.List;
 import java.util.Optional;
-import java.util.Properties;
 import java.util.Set;
+import java.util.stream.Collectors;
 
+import static io.prestosql.plugin.jdbc.StandardColumnMappings.arrayColumnMapping;
+import static io.prestosql.plugin.jdbc.StandardColumnMappings.varcharColumnMapping;
+import static io.prestosql.plugin.phoenix.MetadataUtil.toPhoenixSchemaName;
+import static io.prestosql.plugin.phoenix.MetadataUtil.toPrestoSchemaName;
 import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_ERROR;
+import static io.prestosql.spi.type.VarcharType.createUnboundedVarcharType;
 import static java.util.Objects.requireNonNull;
+import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.TABLE_NAME;
+import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.TABLE_SCHEM;
 
 public class PhoenixClient
+        extends BaseJdbcClient
 {
     private static final Logger log = Logger.get(PhoenixClient.class);
 
-    private final Driver driver;
-    private final String connectionUrl;
-    private final Properties connectionProperties;
+    private final PhoenixConfig config;
 
     @Inject
-    public PhoenixClient(PhoenixConfig config)
+    public PhoenixClient(JdbcConnectorId connectorId, PhoenixConfig config)
             throws SQLException
     {
-        requireNonNull(config, "config is null");
-        connectionUrl = config.getConnectionUrl();
-        driver = DriverManager.getDriver(connectionUrl);
-        connectionProperties = new Properties();
-        connectionProperties.putAll(config.getConnectionProperties());
+        super(connectorId, new BaseJdbcConfig(), "\"", new DriverConnectionFactory(DriverManager.getDriver(config.getConnectionUrl()), config.getConnectionUrl(), config.getConnectionProperties()));
+        this.config = requireNonNull(config, "config is null");
     }
 
     public PhoenixConnection getConnection()
             throws SQLException
     {
-        Connection connection = driver.connect(connectionUrl, connectionProperties);
+        Connection connection = connectionFactory.openConnection();
         try {
             return connection.unwrap(PhoenixConnection.class);
         }
@@ -72,7 +86,7 @@ public class PhoenixClient
 
     protected void execute(String query)
     {
-        try (PhoenixConnection connection = getConnection()) {
+        try (Connection connection = connectionFactory.openConnection()) {
             execute(connection, query);
         }
         catch (SQLException e) {
@@ -80,13 +94,49 @@ public class PhoenixClient
         }
     }
 
-    protected void execute(PhoenixConnection connection, String query)
+    @Override
+    protected SchemaTableName getSchemaTableName(ResultSet resultSet)
             throws SQLException
     {
-        try (Statement statement = connection.createStatement()) {
-            log.debug("Execute: %s", query);
-            statement.execute(query);
+        return new SchemaTableName(
+                toPrestoSchemaName(resultSet.getString(TABLE_SCHEM)),
+                resultSet.getString(TABLE_NAME));
+    }
+
+    @Override
+    protected ResultSet getTables(Connection connection, String schemaName, String tableName)
+            throws SQLException
+    {
+        return super.getTables(connection, toPhoenixSchemaName(schemaName), tableName);
+    }
+
+    @Override
+    public Optional<ColumnMapping> toPrestoType(ConnectorSession session, JdbcTypeHandle typeHandle)
+    {
+        switch (typeHandle.getJdbcType()) {
+            case Types.ARRAY:
+                int elementTypeId = PDataType.fromSqlTypeName(typeHandle.getJdbcTypeName()).getSqlType() - PDataType.ARRAY_TYPE_BASE;
+                String elementTypeName = PDataType.fromTypeId(elementTypeId).getSqlTypeName();
+                JdbcTypeHandle elementTypeHandle = new JdbcTypeHandle(elementTypeId, elementTypeName, typeHandle.getColumnSize(), typeHandle.getDecimalDigits());
+                Optional<ColumnMapping> elementMapping = super.toPrestoType(session, elementTypeHandle);
+                return elementMapping.map(elementMap -> arrayColumnMapping(elementMap.getType()));
+            case Types.VARCHAR:
+            case Types.NVARCHAR:
+            case Types.LONGVARCHAR:
+            case Types.LONGNVARCHAR:
+                if (typeHandle.getColumnSize() == 0) {
+                    return Optional.of(varcharColumnMapping(createUnboundedVarcharType()));
+                }
+                else {
+                    return super.toPrestoType(session, typeHandle);
+                }
         }
+        return super.toPrestoType(session, typeHandle);
+    }
+
+    public List<JdbcColumnHandle> getNonRowkeyColumns(ConnectorSession session, JdbcTableHandle tableHandle)
+    {
+        return super.getColumns(session, tableHandle).stream().filter(handle -> !PhoenixMetadata.ROWKEY.equals(handle.getColumnName())).collect(Collectors.toList());
     }
 
     public String buildSql(
@@ -95,7 +145,7 @@ public class PhoenixClient
             String tableName,
             Optional<Set<ColumnHandle>> desiredColumns,
             TupleDomain<ColumnHandle> tupleDomain,
-            List<PhoenixColumnHandle> columnHandles)
+            List<JdbcColumnHandle> columnHandles)
             throws SQLException
     {
         return QueryBuilder.buildSql(
@@ -107,12 +157,24 @@ public class PhoenixClient
                 tupleDomain);
     }
 
+    public String getConnectorId()
+    {
+        return connectorId;
+    }
+
+    public String getCatalogName()
+    {
+        // catalogName in Phoenix is used for tenantId
+        // TODO tenant-specific connections not currently supported)
+        return "";
+    }
+
     public void setJobQueryConfig(String inputQuery, Configuration conf)
             throws SQLException
     {
-        ConnectionInfo connectionInfo = PhoenixEmbeddedDriver.ConnectionInfo.create(connectionUrl);
+        ConnectionInfo connectionInfo = PhoenixEmbeddedDriver.ConnectionInfo.create(config.getConnectionUrl());
         connectionInfo.asProps().forEach(prop -> conf.set(prop.getKey(), prop.getValue()));
-        connectionProperties.forEach((k, v) -> conf.set((String) k, (String) v));
+        config.getConnectionProperties().forEach((k, v) -> conf.set((String) k, (String) v));
         PhoenixConfigurationUtil.setInputQuery(conf, inputQuery);
     }
 }

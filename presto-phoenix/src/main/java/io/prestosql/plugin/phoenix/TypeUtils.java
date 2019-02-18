@@ -18,7 +18,6 @@ import com.google.common.primitives.Shorts;
 import com.google.common.primitives.SignedBytes;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.block.Block;
-import io.prestosql.spi.type.ArrayType;
 import io.prestosql.spi.type.CharType;
 import io.prestosql.spi.type.DecimalType;
 import io.prestosql.spi.type.StandardTypes;
@@ -29,13 +28,11 @@ import org.apache.phoenix.schema.types.PDataType;
 
 import java.sql.Date;
 import java.sql.Timestamp;
-import java.sql.Types;
 import java.util.Map;
 
 import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.prestosql.spi.type.BigintType.BIGINT;
 import static io.prestosql.spi.type.BooleanType.BOOLEAN;
-import static io.prestosql.spi.type.CharType.createCharType;
 import static io.prestosql.spi.type.Chars.isCharType;
 import static io.prestosql.spi.type.DateType.DATE;
 import static io.prestosql.spi.type.Decimals.readBigDecimal;
@@ -49,11 +46,8 @@ import static io.prestosql.spi.type.TimestampType.TIMESTAMP;
 import static io.prestosql.spi.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
 import static io.prestosql.spi.type.TinyintType.TINYINT;
 import static io.prestosql.spi.type.VarbinaryType.VARBINARY;
-import static io.prestosql.spi.type.VarcharType.createUnboundedVarcharType;
-import static io.prestosql.spi.type.VarcharType.createVarcharType;
 import static io.prestosql.spi.type.Varchars.isVarcharType;
 import static java.lang.Float.intBitsToFloat;
-import static java.lang.Math.min;
 import static java.lang.Math.toIntExact;
 import static java.util.concurrent.TimeUnit.DAYS;
 
@@ -133,57 +127,6 @@ public final class TypeUtils
         }
 
         throw new PrestoException(NOT_SUPPORTED, "Unsupported column type: " + type.getTypeSignature());
-    }
-
-    public static Type toPrestoType(int phoenixType, int columnSize, int decimalDigits, int arraySize, int rawTypeId)
-    {
-        switch (phoenixType) {
-            case Types.BIT:
-            case Types.BOOLEAN:
-                return BOOLEAN;
-            case Types.TINYINT:
-                return TINYINT;
-            case Types.SMALLINT:
-                return SMALLINT;
-            case Types.INTEGER:
-                return INTEGER;
-            case Types.BIGINT:
-                return BIGINT;
-            case Types.REAL:
-                return REAL;
-            case Types.FLOAT:
-            case Types.DOUBLE:
-            case Types.NUMERIC:
-                return DOUBLE;
-            case Types.DECIMAL:
-                return DecimalType.createDecimalType(columnSize, decimalDigits);
-            case Types.CHAR:
-            case Types.NCHAR:
-                return createCharType(min(columnSize, CharType.MAX_LENGTH));
-            case Types.VARCHAR:
-            case Types.NVARCHAR:
-            case Types.LONGVARCHAR:
-            case Types.LONGNVARCHAR:
-                if (columnSize == 0 || columnSize > VarcharType.MAX_LENGTH) {
-                    return createUnboundedVarcharType();
-                }
-                return createVarcharType(columnSize);
-            case Types.BINARY:
-            case Types.VARBINARY:
-            case Types.LONGVARBINARY:
-                return VARBINARY;
-            case Types.DATE:
-                return DATE;
-            case Types.TIME:
-                return TIME;
-            case Types.TIMESTAMP:
-                return TIMESTAMP;
-            case Types.ARRAY:
-                PDataType<?> baseType = PDataType.fromTypeId(rawTypeId - PDataType.ARRAY_TYPE_BASE);
-                Type basePrestoType = toPrestoType(baseType.getSqlType(), columnSize, decimalDigits, arraySize, rawTypeId);
-                return new ArrayType(basePrestoType);
-        }
-        return null;
     }
 
     public static Object getObjectValue(Type type, Block block, int position)

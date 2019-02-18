@@ -16,6 +16,7 @@ package io.prestosql.plugin.phoenix;
 import com.google.inject.Binder;
 import com.google.inject.Scopes;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
+import io.prestosql.plugin.jdbc.JdbcConnectorId;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ConnectorPageSinkProvider;
 import io.prestosql.spi.connector.ConnectorPageSourceProvider;
@@ -31,16 +32,19 @@ import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_ERROR;
 public class PhoenixClientModule
         extends AbstractConfigurationAwareModule
 {
+    private final String catalogName;
     private final TypeManager typeManager;
 
-    public PhoenixClientModule(TypeManager typeManager)
+    public PhoenixClientModule(String catalogName, TypeManager typeManager)
     {
+        this.catalogName = catalogName;
         this.typeManager = typeManager;
     }
 
     @Override
     protected void setup(Binder binder)
     {
+        binder.bind(JdbcConnectorId.class).toInstance(new JdbcConnectorId(catalogName));
         binder.bind(ConnectorSplitManager.class).to(PhoenixSplitManager.class).in(Scopes.SINGLETON);
         binder.bind(ConnectorPageSourceProvider.class).to(PhoenixPageSourceProvider.class).in(Scopes.SINGLETON);
         binder.bind(ConnectorPageSinkProvider.class).to(PhoenixPageSinkProvider.class).in(Scopes.SINGLETON);

@@ -20,6 +20,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import io.airlift.slice.Slice;
+import io.prestosql.plugin.jdbc.JdbcColumnHandle;
+import io.prestosql.plugin.jdbc.JdbcMetadata;
+import io.prestosql.plugin.jdbc.JdbcTableHandle;
+import io.prestosql.plugin.jdbc.JdbcTypeHandle;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ColumnMetadata;
@@ -36,8 +40,6 @@ import io.prestosql.spi.connector.ConnectorTableLayoutResult;
 import io.prestosql.spi.connector.ConnectorTableMetadata;
 import io.prestosql.spi.connector.Constraint;
 import io.prestosql.spi.connector.SchemaTableName;
-import io.prestosql.spi.connector.SchemaTablePrefix;
-import io.prestosql.spi.connector.TableNotFoundException;
 import io.prestosql.spi.statistics.ComputedStatistics;
 import io.prestosql.spi.type.RowType;
 import io.prestosql.spi.type.RowType.Field;
@@ -53,9 +55,9 @@ import org.apache.phoenix.schema.TableProperty;
 import org.apache.phoenix.util.SchemaUtil;
 
 import java.io.IOException;
-import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedList;
@@ -67,30 +69,20 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.collect.Iterables.getOnlyElement;
-import static io.prestosql.plugin.phoenix.MetadataUtil.escapeNamePattern;
 import static io.prestosql.plugin.phoenix.MetadataUtil.getEscapedTableName;
 import static io.prestosql.plugin.phoenix.MetadataUtil.toPhoenixSchemaName;
 import static io.prestosql.plugin.phoenix.MetadataUtil.toPrestoSchemaName;
 import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_ERROR;
-import static io.prestosql.plugin.phoenix.TypeUtils.toPrestoType;
 import static io.prestosql.plugin.phoenix.TypeUtils.toSqlType;
 import static io.prestosql.spi.StandardErrorCode.NOT_FOUND;
-import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static org.apache.hadoop.hbase.HConstants.FOREVER;
-import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.ARRAY_SIZE;
-import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.COLUMN_SIZE;
-import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.DATA_TYPE;
-import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.DECIMAL_DIGITS;
-import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.TABLE_NAME;
-import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.TABLE_SCHEM;
-import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.TYPE_ID;
 import static org.apache.phoenix.util.PhoenixRuntime.getTable;
 
 public class PhoenixMetadata
+        extends JdbcMetadata
         implements ConnectorMetadata
 {
     // col name used for PK if none provided in DDL
@@ -104,76 +96,58 @@ public class PhoenixMetadata
 
     public PhoenixMetadata(PhoenixClient phoenixClient)
     {
+        super(phoenixClient, true);
         this.phoenixClient = requireNonNull(phoenixClient, "client is null");
     }
 
     @Override
     public List<String> listSchemaNames(ConnectorSession session)
     {
-        return ImmutableList.copyOf(getSchemaNames());
+        ImmutableSet.Builder<String> schemaNames = ImmutableSet.builder();
+        schemaNames.add(DEFAULT_SCHEMA);
+        schemaNames.addAll(phoenixClient.getSchemaNames());
+        return ImmutableList.copyOf(schemaNames.build());
     }
 
     @Override
-    public PhoenixTableHandle getTableHandle(ConnectorSession session, SchemaTableName schemaTableName)
+    public JdbcTableHandle getTableHandle(ConnectorSession session, SchemaTableName schemaTableName)
     {
-        try (PhoenixConnection connection = phoenixClient.getConnection()) {
-            String schemaName = schemaTableName.getSchemaName().toUpperCase(ENGLISH);
-            String tableName = schemaTableName.getTableName().toUpperCase(ENGLISH);
-            try (ResultSet resultSet = getTables(connection, schemaName, tableName)) {
-                List<PhoenixTableHandle> tableHandles = new ArrayList<>();
-                while (resultSet.next()) {
-                    tableHandles.add(
-                            new PhoenixTableHandle(
-                                    schemaTableName,
-                                    toPrestoSchemaName(resultSet.getString("TABLE_SCHEM")),
-                                    resultSet.getString("TABLE_NAME")));
-                }
-                if (tableHandles.isEmpty()) {
-                    return null;
-                }
-                if (tableHandles.size() > 1) {
-                    throw new PrestoException(NOT_SUPPORTED, "Multiple tables matched: " + schemaTableName);
-                }
-                return getOnlyElement(tableHandles);
-            }
-        }
-        catch (SQLException e) {
-            throw new PrestoException(PHOENIX_ERROR, e);
-        }
+        JdbcTableHandle tableHandle = phoenixClient.getTableHandle(schemaTableName);
+        return tableHandle == null ? tableHandle : new JdbcTableHandle(
+                tableHandle.getConnectorId(),
+                schemaTableName,
+                tableHandle.getCatalogName(),
+                toPrestoSchemaName(tableHandle.getSchemaName()),
+                tableHandle.getTableName());
     }
 
     @Override
     public List<ConnectorTableLayoutResult> getTableLayouts(ConnectorSession session, ConnectorTableHandle table, Constraint<ColumnHandle> constraint, Optional<Set<ColumnHandle>> desiredColumns)
     {
-        PhoenixTableHandle tableHandle = (PhoenixTableHandle) table;
+        JdbcTableHandle tableHandle = (JdbcTableHandle) table;
         ConnectorTableLayout layout = new ConnectorTableLayout(new PhoenixTableLayoutHandle(tableHandle, constraint.getSummary(), desiredColumns));
         return ImmutableList.of(new ConnectorTableLayoutResult(layout, constraint.getSummary()));
     }
 
     @Override
-    public ConnectorTableLayout getTableLayout(ConnectorSession session, ConnectorTableLayoutHandle handle)
-    {
-        return new ConnectorTableLayout(handle);
-    }
-
-    @Override
     public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table)
     {
-        return getTableMetadata(table, false);
+        return getTableMetadata(session, table, false);
     }
 
-    private ConnectorTableMetadata getTableMetadata(ConnectorTableHandle table, boolean requiredRowKey)
+    public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table, boolean rowkeyRequired)
     {
-        PhoenixTableHandle handle = (PhoenixTableHandle) table;
+        JdbcTableHandle handle = (JdbcTableHandle) table;
 
         ImmutableList.Builder<ColumnMetadata> columnMetadata = ImmutableList.builder();
-        for (PhoenixColumnHandle column : getColumns(handle, requiredRowKey)) {
+        List<JdbcColumnHandle> columns = rowkeyRequired ? phoenixClient.getColumns(session, handle) : phoenixClient.getNonRowkeyColumns(session, handle);
+        for (JdbcColumnHandle column : columns) {
             columnMetadata.add(column.getColumnMetadata());
         }
-        return new ConnectorTableMetadata(handle.getSchemaTableName(), columnMetadata.build(), getTableProperties(handle));
+        return new ConnectorTableMetadata(handle.getSchemaTableName(), columnMetadata.build());
     }
 
-    public Map<String, Object> getTableProperties(PhoenixTableHandle handle)
+    public Map<String, Object> getTableProperties(JdbcTableHandle handle)
     {
         ImmutableMap.Builder<String, Object> properties = ImmutableMap.builder();
 
@@ -226,68 +200,6 @@ public class PhoenixMetadata
     }
 
     @Override
-    public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> schemaName)
-    {
-        try (PhoenixConnection connection = phoenixClient.getConnection()) {
-            schemaName = schemaName.map(s -> s.toUpperCase(ENGLISH));
-            try (ResultSet resultSet = getTables(connection, schemaName.orElse(null), null)) {
-                ImmutableList.Builder<SchemaTableName> list = ImmutableList.builder();
-                while (resultSet.next()) {
-                    list.add(getSchemaTableName(resultSet));
-                }
-                return list.build();
-            }
-        }
-        catch (SQLException e) {
-            throw new PrestoException(PHOENIX_ERROR, e);
-        }
-    }
-
-    @Override
-    public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle tableHandle)
-    {
-        PhoenixTableHandle phoenixTableHandle = (PhoenixTableHandle) tableHandle;
-
-        ImmutableMap.Builder<String, ColumnHandle> columnHandles = ImmutableMap.builder();
-        for (PhoenixColumnHandle column : getColumns(phoenixTableHandle, false)) {
-            columnHandles.put(column.getColumnMetadata().getName(), column);
-        }
-        return columnHandles.build();
-    }
-
-    @Override
-    public Map<SchemaTableName, List<ColumnMetadata>> listTableColumns(ConnectorSession session, SchemaTablePrefix prefix)
-    {
-        ImmutableMap.Builder<SchemaTableName, List<ColumnMetadata>> columns = ImmutableMap.builder();
-        List<SchemaTableName> tables;
-        if (prefix.getTable().isPresent()) {
-            tables = ImmutableList.of(new SchemaTableName(prefix.getSchema().get(), prefix.getTable().get()));
-        }
-        else {
-            tables = listTables(session, prefix.getSchema());
-        }
-        for (SchemaTableName tableName : tables) {
-            try {
-                PhoenixTableHandle tableHandle = getTableHandle(session, tableName);
-                if (tableHandle == null) {
-                    continue;
-                }
-                columns.put(tableName, getTableMetadata(session, tableHandle).getColumns());
-            }
-            catch (TableNotFoundException e) {
-                // table disappeared during listing operation
-            }
-        }
-        return columns.build();
-    }
-
-    @Override
-    public ColumnMetadata getColumnMetadata(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle columnHandle)
-    {
-        return ((PhoenixColumnHandle) columnHandle).getColumnMetadata();
-    }
-
-    @Override
     public void createSchema(ConnectorSession session, String schemaName, Map<String, Object> properties)
     {
         Preconditions.checkArgument(!DEFAULT_SCHEMA.equalsIgnoreCase(schemaName), "Can't create 'default' schema which maps to Phoenix empty schema");
@@ -312,22 +224,11 @@ public class PhoenixMetadata
     @Override
     public void createTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, boolean ignoreExisting)
     {
-        PhoenixTableHandle existingTable = getTableHandle(session, tableMetadata.getTable());
+        JdbcTableHandle existingTable = getTableHandle(session, tableMetadata.getTable());
         if (existingTable != null && !ignoreExisting) {
             throw new IllegalArgumentException("Target table already exists: " + tableMetadata.getTable());
         }
         createTable(tableMetadata);
-    }
-
-    @Override
-    public void dropTable(ConnectorSession session, ConnectorTableHandle tableHandle)
-    {
-        PhoenixTableHandle handle = (PhoenixTableHandle) tableHandle;
-        StringBuilder sql = new StringBuilder()
-                .append("DROP TABLE ")
-                .append(getEscapedTableName(handle.getSchemaName(), handle.getTableName()));
-
-        phoenixClient.execute(sql.toString());
     }
 
     @Override
@@ -336,8 +237,10 @@ public class PhoenixMetadata
         PhoenixOutputTableHandle handle = createTable(tableMetadata);
         setRollback(() -> dropTable(
                 session,
-                new PhoenixTableHandle(
+                new JdbcTableHandle(
+                        phoenixClient.getConnectorId(),
                         new SchemaTableName(handle.getSchemaName(), handle.getTableName()),
+                        phoenixClient.getCatalogName(),
                         handle.getSchemaName(),
                         handle.getTableName())));
         return handle;
@@ -350,26 +253,21 @@ public class PhoenixMetadata
         return Optional.empty();
     }
 
-    private void setRollback(Runnable action)
-    {
-        checkState(rollbackAction.compareAndSet(null, action), "rollback action is already set");
-    }
-
     private void clearRollback()
     {
         rollbackAction.set(null);
     }
 
-    public void rollback()
+    private void setRollback(Runnable action)
     {
-        Optional.ofNullable(rollbackAction.getAndSet(null)).ifPresent(Runnable::run);
+        checkState(rollbackAction.compareAndSet(null, action), "rollback action is already set");
     }
 
     @Override
     public ConnectorInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
-        PhoenixTableHandle handle = (PhoenixTableHandle) tableHandle;
-        ConnectorTableMetadata tableMetadata = getTableMetadata(tableHandle, true);
+        JdbcTableHandle handle = (JdbcTableHandle) tableHandle;
+        ConnectorTableMetadata tableMetadata = getTableMetadata(session, tableHandle, true);
         return new PhoenixOutputTableHandle(
                 handle.getSchemaName(),
                 handle.getTableName(),
@@ -386,7 +284,7 @@ public class PhoenixMetadata
     @Override
     public void addColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnMetadata column)
     {
-        PhoenixTableHandle handle = (PhoenixTableHandle) tableHandle;
+        JdbcTableHandle handle = (JdbcTableHandle) tableHandle;
         StringBuilder sql = new StringBuilder()
                 .append("ALTER TABLE ")
                 .append(getEscapedTableName(handle.getSchemaName(), handle.getTableName()))
@@ -398,8 +296,8 @@ public class PhoenixMetadata
     @Override
     public void dropColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle column)
     {
-        PhoenixTableHandle handle = (PhoenixTableHandle) tableHandle;
-        PhoenixColumnHandle columnHandle = (PhoenixColumnHandle) column;
+        JdbcTableHandle handle = (JdbcTableHandle) tableHandle;
+        JdbcColumnHandle columnHandle = (JdbcColumnHandle) column;
         StringBuilder sql = new StringBuilder()
                 .append("ALTER TABLE ")
                 .append(getEscapedTableName(handle.getSchemaName(), handle.getTableName()))
@@ -411,16 +309,16 @@ public class PhoenixMetadata
     @Override
     public ColumnHandle getUpdateRowIdColumnHandle(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
-        PhoenixTableHandle handle = (PhoenixTableHandle) tableHandle;
-        Map<String, PhoenixColumnHandle> namesToHandles =
-                Maps.uniqueIndex(getColumns(handle, true), mapHandle -> mapHandle.getColumnName());
+        JdbcTableHandle handle = (JdbcTableHandle) tableHandle;
+        Map<String, JdbcColumnHandle> namesToHandles =
+                Maps.uniqueIndex(phoenixClient.getColumns(session, handle), mapHandle -> mapHandle.getColumnName());
         try (PhoenixConnection connection = phoenixClient.getConnection();
                 ResultSet resultSet =
                         connection.getMetaData().getPrimaryKeys("", toPhoenixSchemaName(handle.getSchemaName()), handle.getTableName())) {
             List<Field> fields = new ArrayList<>();
             while (resultSet.next()) {
                 String columnName = resultSet.getString("COLUMN_NAME");
-                PhoenixColumnHandle columnHandle = namesToHandles.get(columnName);
+                JdbcColumnHandle columnHandle = namesToHandles.get(columnName);
                 if (columnHandle == null) {
                     throw new PrestoException(NOT_FOUND, "Couldn't find metadata for column: " + columnName);
                 }
@@ -430,7 +328,11 @@ public class PhoenixMetadata
                 throw new PrestoException(NOT_FOUND, "No PK fields found for table " + handle.getTableName());
             }
             RowType rowType = RowType.from(fields);
-            return new PhoenixColumnHandle(UPDATE_ROW_ID, rowType);
+            return new JdbcColumnHandle(
+                    phoenixClient.getConnectorId(),
+                    UPDATE_ROW_ID,
+                    new JdbcTypeHandle(Types.ROWID, "ROWID", -1, 0),
+                    rowType);
         }
         catch (SQLException e) {
             throw new PrestoException(PHOENIX_ERROR, e);
@@ -464,150 +366,67 @@ public class PhoenixMetadata
 
         Map<String, Object> tableProperties = tableMetadata.getProperties();
 
-        if (!getSchemaNames().contains(schema)) {
-            throw new PrestoException(NOT_FOUND, "Schema not found: " + schema);
+        StringBuilder sql = new StringBuilder();
+        Optional<Boolean> immutableRows = PhoenixTableProperties.getImmutableRows(tableProperties);
+        if (immutableRows.isPresent() && immutableRows.get()) {
+            sql.append("CREATE IMMUTABLE TABLE ");
         }
+        else {
+            sql.append("CREATE TABLE ");
+        }
+        sql.append(getEscapedTableName(schema, table)).append(" (\n ");
+        ImmutableList.Builder<String> columnNames = ImmutableList.builder();
+        ImmutableList.Builder<Type> columnTypes = ImmutableList.builder();
+        ImmutableList.Builder<String> columnList = ImmutableList.builder();
+        Set<ColumnMetadata> pkCols = tableColumns.stream().filter(col -> PhoenixTableProperties.isPrimaryKey(col, tableProperties)).collect(Collectors.toSet());
+        if (pkCols.isEmpty()) {
+            // Add a rowkey when not specified in DDL
+            ColumnMetadata rowKeyCol = new ColumnMetadata(ROWKEY, VARCHAR);
+            tableColumns.addFirst(rowKeyCol);
+            pkCols.add(rowKeyCol);
+        }
+        List<String> pkNames = new ArrayList<>();
 
-        try (PhoenixConnection connection = phoenixClient.getConnection()) {
-            StringBuilder sql = new StringBuilder();
-            Optional<Boolean> immutableRows = PhoenixTableProperties.getImmutableRows(tableProperties);
-            if (immutableRows.isPresent() && immutableRows.get()) {
-                sql.append("CREATE IMMUTABLE TABLE ");
+        for (ColumnMetadata column : tableColumns) {
+            String columnName = column.getName().toUpperCase(ENGLISH);
+            columnNames.add(columnName);
+            columnTypes.add(column.getType());
+            String typeStatement = toSqlType(column.getType());
+            if (pkCols.contains(column)) {
+                typeStatement += " not null";
+                pkNames.add(columnName);
             }
-            else {
-                sql.append("CREATE TABLE ");
-            }
-            sql.append(getEscapedTableName(schema, table)).append(" (\n ");
-            ImmutableList.Builder<String> columnNames = ImmutableList.builder();
-            ImmutableList.Builder<Type> columnTypes = ImmutableList.builder();
-            ImmutableList.Builder<String> columnList = ImmutableList.builder();
-            Set<ColumnMetadata> pkCols = tableColumns.stream().filter(col -> PhoenixTableProperties.isPrimaryKey(col, tableProperties)).collect(Collectors.toSet());
-            if (pkCols.isEmpty()) {
-                // Add a rowkey when not specified in DDL
-                ColumnMetadata rowKeyCol = new ColumnMetadata(ROWKEY, VARCHAR);
-                tableColumns.addFirst(rowKeyCol);
-                pkCols.add(rowKeyCol);
-            }
-            List<String> pkNames = new ArrayList<>();
-
-            for (ColumnMetadata column : tableColumns) {
-                String columnName = column.getName().toUpperCase(ENGLISH);
-                columnNames.add(columnName);
-                columnTypes.add(column.getType());
-                String typeStatement = toSqlType(column.getType());
-                if (pkCols.contains(column)) {
-                    typeStatement += " not null";
-                    pkNames.add(columnName);
-                }
-                columnList.add(new StringBuilder()
-                        .append(columnName)
-                        .append(" ")
-                        .append(typeStatement)
-                        .toString());
-            }
-
-            List<String> columns = columnList.build();
-            Joiner.on(", \n ").appendTo(sql, columns);
-            sql.append("\n CONSTRAINT PK PRIMARY KEY(");
-            Joiner.on(", ").appendTo(sql, pkNames);
-            sql.append(")\n)\n");
-
-            ImmutableList.Builder<String> tableOptions = ImmutableList.builder();
-            PhoenixTableProperties.getSaltBuckets(tableProperties).ifPresent(value -> tableOptions.add(TableProperty.SALT_BUCKETS + "=" + value));
-            PhoenixTableProperties.getSplitOn(tableProperties).ifPresent(value -> tableOptions.add("SPLIT ON (" + value.replace('"', '\'') + ")"));
-            PhoenixTableProperties.getDisableWal(tableProperties).ifPresent(value -> tableOptions.add(TableProperty.DISABLE_WAL + "=" + value));
-            PhoenixTableProperties.getDefaultColumnFamily(tableProperties).ifPresent(value -> tableOptions.add(TableProperty.DEFAULT_COLUMN_FAMILY + "=" + value));
-            PhoenixTableProperties.getBloomfilter(tableProperties).ifPresent(value -> tableOptions.add(HColumnDescriptor.BLOOMFILTER + "='" + value + "'"));
-            PhoenixTableProperties.getVersions(tableProperties).ifPresent(value -> tableOptions.add(HConstants.VERSIONS + "=" + value));
-            PhoenixTableProperties.getMinVersions(tableProperties).ifPresent(value -> tableOptions.add(HColumnDescriptor.MIN_VERSIONS + "=" + value));
-            PhoenixTableProperties.getCompression(tableProperties).ifPresent(value -> tableOptions.add(HColumnDescriptor.COMPRESSION + "='" + value + "'"));
-            PhoenixTableProperties.getTimeToLive(tableProperties).ifPresent(value -> tableOptions.add(HColumnDescriptor.TTL + "=" + value));
-            Joiner.on(", \n ").appendTo(sql, tableOptions.build());
-
-            phoenixClient.execute(connection, sql.toString());
-
-            return new PhoenixOutputTableHandle(
-                    schema,
-                    table,
-                    columnNames.build(),
-                    columnTypes.build());
+            columnList.add(new StringBuilder()
+                    .append(columnName)
+                    .append(" ")
+                    .append(typeStatement)
+                    .toString());
         }
-        catch (SQLException e) {
-            throw new PrestoException(PHOENIX_ERROR, e);
-        }
-    }
 
-    private ResultSet getTables(PhoenixConnection connection, String schemaName, String tableName)
-            throws SQLException
-    {
-        DatabaseMetaData metadata = connection.getMetaData();
-        String escape = metadata.getSearchStringEscape();
-        return metadata.getTables(
-                connection.getCatalog(),
-                escapeNamePattern(toPhoenixSchemaName(schemaName), escape),
-                escapeNamePattern(tableName, escape),
-                new String[] {"TABLE", "VIEW"});
-    }
+        List<String> columns = columnList.build();
+        Joiner.on(", \n ").appendTo(sql, columns);
+        sql.append("\n CONSTRAINT PK PRIMARY KEY(");
+        Joiner.on(", ").appendTo(sql, pkNames);
+        sql.append(")\n)\n");
 
-    public List<PhoenixColumnHandle> getColumns(PhoenixTableHandle tableHandle, boolean requiredRowKey)
-    {
-        try (PhoenixConnection connection = phoenixClient.getConnection()) {
-            DatabaseMetaData metaData = connection.getMetaData();
-            String escape = metaData.getSearchStringEscape();
-            try (ResultSet resultSet = metaData.getColumns(
-                    connection.getCatalog(),
-                    escapeNamePattern(toPhoenixSchemaName(tableHandle.getSchemaName()), escape),
-                    escapeNamePattern(tableHandle.getTableName(), escape),
-                    null)) {
-                List<PhoenixColumnHandle> columns = new ArrayList<>();
-                boolean found = false;
-                while (resultSet.next()) {
-                    found = true;
-                    Type columnType = toPrestoType(resultSet.getInt(DATA_TYPE), resultSet.getInt(COLUMN_SIZE), resultSet.getInt(DECIMAL_DIGITS), resultSet.getInt(ARRAY_SIZE), resultSet.getInt(TYPE_ID));
-                    // skip unsupported column types
-                    if (columnType != null) {
-                        String columnName = resultSet.getString("COLUMN_NAME");
-                        if (requiredRowKey || !ROWKEY.equals(columnName)) {
-                            columns.add(new PhoenixColumnHandle(columnName, columnType));
-                        }
-                    }
-                }
-                if (!found) {
-                    throw new TableNotFoundException(tableHandle.getSchemaTableName());
-                }
-                if (columns.isEmpty()) {
-                    throw new PrestoException(NOT_SUPPORTED, "Table has no supported column types: " + tableHandle.getSchemaTableName());
-                }
-                return ImmutableList.copyOf(columns);
-            }
-        }
-        catch (SQLException e) {
-            throw new PrestoException(PHOENIX_ERROR, e);
-        }
-    }
+        ImmutableList.Builder<String> tableOptions = ImmutableList.builder();
+        PhoenixTableProperties.getSaltBuckets(tableProperties).ifPresent(value -> tableOptions.add(TableProperty.SALT_BUCKETS + "=" + value));
+        PhoenixTableProperties.getSplitOn(tableProperties).ifPresent(value -> tableOptions.add("SPLIT ON (" + value.replace('"', '\'') + ")"));
+        PhoenixTableProperties.getDisableWal(tableProperties).ifPresent(value -> tableOptions.add(TableProperty.DISABLE_WAL + "=" + value));
+        PhoenixTableProperties.getDefaultColumnFamily(tableProperties).ifPresent(value -> tableOptions.add(TableProperty.DEFAULT_COLUMN_FAMILY + "=" + value));
+        PhoenixTableProperties.getBloomfilter(tableProperties).ifPresent(value -> tableOptions.add(HColumnDescriptor.BLOOMFILTER + "='" + value + "'"));
+        PhoenixTableProperties.getVersions(tableProperties).ifPresent(value -> tableOptions.add(HConstants.VERSIONS + "=" + value));
+        PhoenixTableProperties.getMinVersions(tableProperties).ifPresent(value -> tableOptions.add(HColumnDescriptor.MIN_VERSIONS + "=" + value));
+        PhoenixTableProperties.getCompression(tableProperties).ifPresent(value -> tableOptions.add(HColumnDescriptor.COMPRESSION + "='" + value + "'"));
+        PhoenixTableProperties.getTimeToLive(tableProperties).ifPresent(value -> tableOptions.add(HColumnDescriptor.TTL + "=" + value));
+        Joiner.on(", \n ").appendTo(sql, tableOptions.build());
 
-    private SchemaTableName getSchemaTableName(ResultSet resultSet)
-            throws SQLException
-    {
-        return new SchemaTableName(
-                toPrestoSchemaName(resultSet.getString(TABLE_SCHEM)),
-                resultSet.getString(TABLE_NAME));
-    }
+        phoenixClient.execute(sql.toString());
 
-    public Set<String> getSchemaNames()
-    {
-        try (PhoenixConnection connection = phoenixClient.getConnection();
-                ResultSet resultSet = connection.getMetaData().getSchemas()) {
-            ImmutableSet.Builder<String> schemaNames = ImmutableSet.builder();
-            schemaNames.add(DEFAULT_SCHEMA);
-            while (resultSet.next()) {
-                String schemaName = resultSet.getString(TABLE_SCHEM);
-                schemaNames.add(schemaName);
-            }
-            return schemaNames.build();
-        }
-        catch (SQLException e) {
-            throw new PrestoException(PHOENIX_ERROR, e);
-        }
+        return new PhoenixOutputTableHandle(
+                schema,
+                table,
+                columnNames.build(),
+                columnTypes.build());
     }
 }

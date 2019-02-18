@@ -15,6 +15,7 @@ package io.prestosql.plugin.phoenix;
 
 import com.google.common.collect.ImmutableList;
 import io.airlift.log.Logger;
+import io.prestosql.plugin.jdbc.JdbcTableHandle;
 import io.prestosql.spi.HostAddress;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ConnectorSession;
@@ -82,7 +83,7 @@ public class PhoenixSplitManager
     public ConnectorSplitSource getSplits(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorTableLayoutHandle layout, SplitSchedulingStrategy splitSchedulingStrategy)
     {
         PhoenixTableLayoutHandle layoutHandle = (PhoenixTableLayoutHandle) layout;
-        PhoenixTableHandle handle = layoutHandle.getTable();
+        JdbcTableHandle handle = layoutHandle.getTable();
         try (PhoenixConnection connection = phoenixClient.getConnection()) {
             String inputQuery = phoenixClient.buildSql(
                     connection,
@@ -90,12 +91,14 @@ public class PhoenixSplitManager
                     handle.getTableName(),
                     layoutHandle.getDesiredColumns(),
                     layoutHandle.getTupleDomain(),
-                    phoenixMetadata.getColumns(handle, false));
+                    phoenixClient.getNonRowkeyColumns(session, handle));
 
             return new FixedSplitSource(getHadoopInputSplits(inputQuery).stream().map(split -> (PhoenixInputSplit) split).map(split -> {
                 List<HostAddress> addresses = getSplitAddresses(split);
 
                 return new PhoenixSplit(
+                        phoenixClient.getConnectorId(),
+                        phoenixClient.getCatalogName(),
                         handle.getSchemaName(),
                         handle.getTableName(),
                         layoutHandle.getTupleDomain(),

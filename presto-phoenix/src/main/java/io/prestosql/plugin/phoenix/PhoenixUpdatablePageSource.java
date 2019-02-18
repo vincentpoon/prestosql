@@ -15,6 +15,7 @@ package io.prestosql.plugin.phoenix;
 
 import com.google.common.base.Joiner;
 import io.airlift.slice.Slice;
+import io.prestosql.plugin.jdbc.JdbcColumnHandle;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.block.Block;
 import io.prestosql.spi.connector.ConnectorSession;
@@ -48,7 +49,7 @@ public class PhoenixUpdatablePageSource
     private List<Field> pkFields;
 
     public PhoenixUpdatablePageSource(ConnectorSession session, PhoenixClient phoenixClient, PhoenixSplit split,
-            List<PhoenixColumnHandle> columns)
+            List<JdbcColumnHandle> columns)
     {
         super(session, phoenixClient, split, columns);
         this.split = split;
@@ -94,14 +95,14 @@ public class PhoenixUpdatablePageSource
     private String buildDeleteSql()
     {
         String columns = pkFields.stream().map(field -> field.getName().get()).collect(joining(","));
-        String vars = Joiner.on(",").join(nCopies(pkFields.size(), "?"));
+        String params = Joiner.on(",").join(nCopies(pkFields.size(), "?"));
         StringBuilder deleteSql = new StringBuilder()
                 .append("DELETE FROM ")
                 .append(getEscapedTableName(split.getSchemaName(), split.getTableName()))
                 .append(" WHERE ")
                 .append("(").append(columns).append(")")
                 .append(" IN ")
-                .append("((").append(vars).append("))");
+                .append("((").append(params).append("))");
         return deleteSql.toString();
     }
 

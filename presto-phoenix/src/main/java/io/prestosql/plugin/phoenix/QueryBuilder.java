@@ -16,6 +16,7 @@ package io.prestosql.plugin.phoenix;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import io.airlift.slice.Slice;
+import io.prestosql.plugin.jdbc.JdbcColumnHandle;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.predicate.Domain;
 import io.prestosql.spi.predicate.Range;
@@ -81,18 +82,18 @@ public class QueryBuilder
             String schema,
             String table,
             Optional<Set<ColumnHandle>> desiredColumns,
-            List<PhoenixColumnHandle> columns,
+            List<JdbcColumnHandle> columns,
             TupleDomain<ColumnHandle> tupleDomain)
             throws SQLException
     {
         StringBuilder sql = new StringBuilder().append("SELECT ");
         if (desiredColumns.isPresent() && !desiredColumns.get().isEmpty()) {
-            List<PhoenixColumnHandle> desiredPCols = desiredColumns.get().stream().map(ch -> (PhoenixColumnHandle) ch).collect(Collectors.toList());
-            String columnNames = decomposePrimaryKeyColumn(desiredPCols).stream().map(PhoenixColumnHandle::getColumnName).collect(joining(", "));
+            List<JdbcColumnHandle> desiredPCols = desiredColumns.get().stream().map(ch -> (JdbcColumnHandle) ch).collect(Collectors.toList());
+            String columnNames = decomposePrimaryKeyColumn(desiredPCols).stream().map(JdbcColumnHandle::getColumnName).collect(joining(", "));
             sql.append(columnNames);
         }
         else {
-            String columnNames = decomposePrimaryKeyColumn(columns).stream().map(PhoenixColumnHandle::getColumnName).collect(joining(", "));
+            String columnNames = decomposePrimaryKeyColumn(columns).stream().map(JdbcColumnHandle::getColumnName).collect(joining(", "));
             sql.append(columnNames);
             if (columns.isEmpty()) {
                 sql.append("null");
@@ -190,10 +191,10 @@ public class QueryBuilder
                 validType instanceof DecimalType;
     }
 
-    private static List<String> toConjuncts(List<PhoenixColumnHandle> columns, TupleDomain<ColumnHandle> tupleDomain, List<TypeAndValue> accumulator)
+    private static List<String> toConjuncts(List<JdbcColumnHandle> columns, TupleDomain<ColumnHandle> tupleDomain, List<TypeAndValue> accumulator)
     {
         ImmutableList.Builder<String> builder = ImmutableList.builder();
-        for (PhoenixColumnHandle column : columns) {
+        for (JdbcColumnHandle column : columns) {
             Type type = column.getColumnType();
             if (isAcceptedType(type)) {
                 Domain domain = tupleDomain.getDomains().get().get(column);

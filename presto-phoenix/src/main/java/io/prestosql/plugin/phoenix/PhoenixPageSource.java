@@ -14,6 +14,7 @@
 package io.prestosql.plugin.phoenix;
 
 import io.airlift.slice.Slice;
+import io.prestosql.plugin.jdbc.JdbcColumnHandle;
 import io.prestosql.spi.Page;
 import io.prestosql.spi.PageBuilder;
 import io.prestosql.spi.PrestoException;
@@ -96,10 +97,10 @@ public class PhoenixPageSource
     private long nanoEnd;
     private long rowsPerPage;
 
-    public PhoenixPageSource(ConnectorSession session, PhoenixClient phoenixClient, PhoenixSplit split, List<PhoenixColumnHandle> columns)
+    public PhoenixPageSource(ConnectorSession session, PhoenixClient phoenixClient, PhoenixSplit split, List<JdbcColumnHandle> columns)
     {
-        this.columnNames = columns.stream().map(PhoenixColumnHandle::getColumnName).collect(toList());
-        this.columnTypes = columns.stream().map(PhoenixColumnHandle::getColumnType).collect(toList());
+        this.columnNames = columns.stream().map(JdbcColumnHandle::getColumnName).collect(toList());
+        this.columnTypes = columns.stream().map(JdbcColumnHandle::getColumnType).collect(toList());
         this.pageBuilder = new PageBuilder(columnTypes);
         rowsPerPage = PhoenixSessionProperties.getReadPageSize(session);
 
@@ -112,7 +113,7 @@ public class PhoenixPageSource
         }
     }
 
-    private RecordReader<NullWritable, PhoenixDBWritable> createRecordReader(PhoenixClient phoenixClient, PhoenixSplit split, List<PhoenixColumnHandle> columns)
+    private RecordReader<NullWritable, PhoenixDBWritable> createRecordReader(PhoenixClient phoenixClient, PhoenixSplit split, List<JdbcColumnHandle> columns)
             throws Exception
     {
         String inputQuery = phoenixClient.buildSql(
