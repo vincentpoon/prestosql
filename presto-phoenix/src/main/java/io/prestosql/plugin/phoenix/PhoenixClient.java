@@ -13,7 +13,6 @@
  */
 package io.prestosql.plugin.phoenix;
 
-import io.airlift.log.Logger;
 import io.prestosql.plugin.jdbc.BaseJdbcClient;
 import io.prestosql.plugin.jdbc.BaseJdbcConfig;
 import io.prestosql.plugin.jdbc.ColumnMapping;
@@ -59,8 +58,6 @@ import static org.apache.phoenix.jdbc.PhoenixDatabaseMetaData.TABLE_SCHEM;
 public class PhoenixClient
         extends BaseJdbcClient
 {
-    private static final Logger log = Logger.get(PhoenixClient.class);
-
     private final PhoenixConfig config;
 
     @Inject
