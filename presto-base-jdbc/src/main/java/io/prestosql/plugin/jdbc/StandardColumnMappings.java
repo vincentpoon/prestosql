@@ -16,6 +16,7 @@ package io.prestosql.plugin.jdbc;
 import com.google.common.base.CharMatcher;
 import com.google.common.primitives.Shorts;
 import com.google.common.primitives.SignedBytes;
+import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.type.ArrayType;
 import io.prestosql.spi.type.CharType;
 import io.prestosql.spi.type.DecimalType;
@@ -40,6 +41,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.airlift.slice.Slices.wrappedBuffer;
 import static io.prestosql.plugin.jdbc.ColumnMapping.DISABLE_PUSHDOWN;
+import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.prestosql.spi.type.BigintType.BIGINT;
 import static io.prestosql.spi.type.BooleanType.BOOLEAN;
 import static io.prestosql.spi.type.CharType.createCharType;
@@ -76,7 +78,14 @@ public final class StandardColumnMappings
 
     public static ColumnMapping arrayColumnMapping(Type elementType)
     {
-        return ColumnMapping.arrayMapping(new ArrayType(elementType), ResultSet::getArray, PreparedStatement::setArray);
+        return ColumnMapping.arrayMapping(
+                new ArrayType(elementType),
+                (resultSet, columnIndex) -> {
+                    throw new PrestoException(NOT_SUPPORTED, "array read not supported");
+                },
+                (statement, index, value) -> {
+                    throw new PrestoException(NOT_SUPPORTED, "array write not supported");
+                });
     }
 
     public static ColumnMapping booleanColumnMapping()
