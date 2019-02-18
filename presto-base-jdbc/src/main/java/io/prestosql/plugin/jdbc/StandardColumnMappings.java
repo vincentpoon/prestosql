@@ -16,9 +16,11 @@ package io.prestosql.plugin.jdbc;
 import com.google.common.base.CharMatcher;
 import com.google.common.primitives.Shorts;
 import com.google.common.primitives.SignedBytes;
+import io.prestosql.spi.type.ArrayType;
 import io.prestosql.spi.type.CharType;
 import io.prestosql.spi.type.DecimalType;
 import io.prestosql.spi.type.Decimals;
+import io.prestosql.spi.type.Type;
 import io.prestosql.spi.type.VarcharType;
 import org.joda.time.DateTimeZone;
 import org.joda.time.chrono.ISOChronology;
@@ -71,6 +73,11 @@ public final class StandardColumnMappings
     private StandardColumnMappings() {}
 
     private static final ISOChronology UTC_CHRONOLOGY = ISOChronology.getInstanceUTC();
+
+    public static ColumnMapping arrayColumnMapping(Type elementType)
+    {
+        return ColumnMapping.arrayMapping(new ArrayType(elementType), ResultSet::getArray, PreparedStatement::setArray);
+    }
 
     public static ColumnMapping booleanColumnMapping()
     {
