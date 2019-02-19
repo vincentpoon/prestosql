@@ -83,6 +83,30 @@ public class TestPostgreSqlIntegrationSmokeTest
         assertQuery("SELECT * FROM test_insert", "SELECT 123 x, 'test' y");
         assertUpdate("DROP TABLE test_insert");
     }
+    
+    @Test
+    public void testArrayType()
+            throws Exception
+    {
+//        execute("CREATE TABLE tpch.test_array_type (pk bigint, val integer[])");
+//        assertUpdate("INSERT INTO tpch.test_array_type VALUES (1, ARRAY[4,5,6])", 1);
+//        assertQuery("SELECT val[1] from tpch.test_array_type", "select 4");
+//        assertUpdate("DROP TABLE tpch.test_array_type");
+        assertUpdate("CREATE TABLE tmp_array1 AS SELECT 'key' as rkey, ARRAY[1, 2, NULL] AS col", 1);
+        assertQuery("SELECT col[2] FROM tmp_array1", "SELECT 2");
+        assertQuery("SELECT col[3] FROM tmp_array1", "SELECT 0");
+
+        assertUpdate("CREATE TABLE tmp_array2 AS SELECT 'key' as rkey, ARRAY[1.0E0, 2.5E0, 3.5E0] AS col", 1);
+        assertQuery("SELECT col[2] FROM tmp_array2", "SELECT 2.5");
+
+        assertUpdate("CREATE TABLE tmp_array3 AS SELECT 'key' as rkey, ARRAY['puppies', 'kittens', NULL] AS col", 1);
+        assertQuery("SELECT col[2] FROM tmp_array3", "SELECT 'kittens'");
+        assertQuery("SELECT col[3] FROM tmp_array3", "SELECT NULL");
+
+        assertUpdate("CREATE TABLE tmp_array4 AS SELECT 'key' as rkey, ARRAY[TRUE, NULL] AS col", 1);
+        assertQuery("SELECT col[1] FROM tmp_array4", "SELECT TRUE");
+        assertQuery("SELECT col[2] FROM tmp_array4", "SELECT FALSE");
+    }
 
     @Test
     public void testViews()

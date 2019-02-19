@@ -32,6 +32,7 @@ import io.prestosql.spi.type.CharType;
 import io.prestosql.spi.type.DecimalType;
 import io.prestosql.spi.type.Type;
 import io.prestosql.spi.type.VarcharType;
+import io.prestosql.spi.type.ArrayType;
 
 import javax.annotation.Nullable;
 import javax.annotation.PreDestroy;
@@ -100,6 +101,7 @@ public class BaseJdbcClient
             .put(REAL, WriteMapping.longMapping("real", realWriteFunction()))
             .put(VARBINARY, WriteMapping.sliceMapping("varbinary", varbinaryWriteFunction()))
             .put(DATE, WriteMapping.longMapping("date", dateWriteFunction()))
+//            .put(ARRAY, WriteMapping.blockMapping("array", StandardColumnMappings.arrayWriteFunction()));
             .build();
 
     protected final String connectorId;

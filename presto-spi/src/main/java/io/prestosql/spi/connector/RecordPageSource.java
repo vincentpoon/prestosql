@@ -16,6 +16,7 @@ package io.prestosql.spi.connector;
 import io.airlift.slice.Slice;
 import io.prestosql.spi.Page;
 import io.prestosql.spi.PageBuilder;
+import io.prestosql.spi.block.Block;
 import io.prestosql.spi.block.BlockBuilder;
 import io.prestosql.spi.type.Type;
 
@@ -118,6 +119,14 @@ public class RecordPageSource
                         else if (javaType == Slice.class) {
                             Slice slice = cursor.getSlice(column);
                             type.writeSlice(output, slice, 0, slice.length());
+                        }
+                        else if (javaType == Block.class) {
+//                            BlockBuilder builder = output.beginBlockEntry();
+                            Block block = cursor.getBlock(column);
+                            type.writeObject(output, block);
+//                            type.appendTo(output, position, builder);
+//                            cursor.getBlock(field)
+                            
                         }
                         else {
                             type.writeObject(output, cursor.getObject(column));

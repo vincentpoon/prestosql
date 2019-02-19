@@ -26,6 +26,8 @@ import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.predicate.TupleDomain;
+import io.prestosql.spi.type.ArrayType;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.phoenix.jdbc.PhoenixConnection;
 import org.apache.phoenix.jdbc.PhoenixEmbeddedDriver;
@@ -116,7 +118,9 @@ public class PhoenixClient
                 String elementTypeName = PDataType.fromTypeId(elementTypeId).getSqlTypeName();
                 JdbcTypeHandle elementTypeHandle = new JdbcTypeHandle(elementTypeId, elementTypeName, typeHandle.getColumnSize(), typeHandle.getDecimalDigits());
                 Optional<ColumnMapping> elementMapping = super.toPrestoType(session, elementTypeHandle);
-                return elementMapping.map(elementMap -> arrayColumnMapping(elementMap.getType()));
+                return elementMapping.map(elementMap -> arrayColumnMapping(new ArrayType(elementMap.getType()),
+                    (resultSet, index) -> {throw new RuntimeException();},
+                    (conn, statement, index, value) -> {}));
             case Types.VARCHAR:
             case Types.NVARCHAR:
             case Types.LONGVARCHAR:

@@ -21,7 +21,8 @@ import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.block.Block;
 import io.prestosql.spi.connector.ConnectorPageSink;
 import io.prestosql.spi.type.Type;
-
+import io.prestosql.spi.type.ArrayType;
+import io.prestosql.spi.type.AbstractType;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -132,6 +133,9 @@ public class JdbcPageSink
         }
         else if (javaType == Slice.class) {
             ((SliceWriteFunction) writeFunction).set(statement, parameterIndex, type.getSlice(block, position));
+        }
+        else if (javaType == Block.class) {
+            ((BlockWriteFunction) writeFunction).set(connection,  statement, parameterIndex, (Block) type.getObject(block, position));
         }
         else {
             throw new VerifyException(format("Unexpected type %s with java type %s", type, javaType.getName()));

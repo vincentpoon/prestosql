@@ -15,6 +15,7 @@ package io.prestosql.plugin.jdbc;
 
 import io.prestosql.spi.block.Block;
 
+import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 
@@ -28,6 +29,6 @@ public interface BlockWriteFunction
         return Block.class;
     }
 
-    void set(PreparedStatement statement, int index, Block value)
+    void set(Connection connection, PreparedStatement statement, int index, Block value)
             throws SQLException;
 }

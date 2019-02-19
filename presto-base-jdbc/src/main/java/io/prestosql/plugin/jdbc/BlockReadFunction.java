@@ -28,6 +28,6 @@ public interface BlockReadFunction
         return Block.class;
     }
 
-    Block readArray(ResultSet resultSet, int columnIndex)
+    Block readBlock(ResultSet resultSet, int columnIndex)
             throws SQLException;
 }
