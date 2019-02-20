@@ -26,6 +26,16 @@ public final class ColumnMapping
 {
     public static final UnaryOperator<Domain> DISABLE_PUSHDOWN = domain -> Domain.all(domain.getType());
 
+    public static ColumnMapping blockMapping(Type prestoType, BlockReadFunction readFunction, BlockWriteFunction writeFunction)
+    {
+        return blockMapping(prestoType, readFunction, writeFunction, UnaryOperator.identity());
+    }
+
+    public static ColumnMapping blockMapping(Type prestoType, BlockReadFunction readFunction, BlockWriteFunction writeFunction, UnaryOperator<Domain> pushdownConverter)
+    {
+        return new ColumnMapping(prestoType, readFunction, writeFunction, pushdownConverter);
+    }
+
     public static ColumnMapping booleanMapping(Type prestoType, BooleanReadFunction readFunction, BooleanWriteFunction writeFunction)
     {
         return booleanMapping(prestoType, readFunction, writeFunction, UnaryOperator.identity());

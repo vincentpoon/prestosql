@@ -16,9 +16,14 @@ package io.prestosql.plugin.jdbc;
 import com.google.common.base.CharMatcher;
 import com.google.common.primitives.Shorts;
 import com.google.common.primitives.SignedBytes;
+
+import io.prestosql.spi.PrestoException;
+import io.prestosql.spi.block.IntArrayBlock;
+import io.prestosql.spi.type.ArrayType;
 import io.prestosql.spi.type.CharType;
 import io.prestosql.spi.type.DecimalType;
 import io.prestosql.spi.type.Decimals;
+import io.prestosql.spi.type.Type;
 import io.prestosql.spi.type.VarcharType;
 import org.joda.time.DateTimeZone;
 import org.joda.time.chrono.ISOChronology;
@@ -26,6 +31,7 @@ import org.joda.time.chrono.ISOChronology;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.MathContext;
+import java.sql.Array;
 import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -38,6 +44,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.airlift.slice.Slices.wrappedBuffer;
 import static io.prestosql.plugin.jdbc.ColumnMapping.DISABLE_PUSHDOWN;
+import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.prestosql.spi.type.BigintType.BIGINT;
 import static io.prestosql.spi.type.BooleanType.BOOLEAN;
 import static io.prestosql.spi.type.CharType.createCharType;
@@ -65,12 +72,56 @@ import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.DAYS;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.joda.time.DateTimeZone.UTC;
+import static io.prestosql.spi.StandardErrorCode.NOT_FOUND;
 
 public final class StandardColumnMappings
 {
     private StandardColumnMappings() {}
 
     private static final ISOChronology UTC_CHRONOLOGY = ISOChronology.getInstanceUTC();
+
+    public static ColumnMapping arrayColumnMapping(Type arrayType, BlockReadFunction blockReadFunction, BlockWriteFunction blockWriteFunction)
+    {
+
+//        Optional<ColumnMapping> elementMapping = jdbcTypeToPrestoType(baseJdbcType);
+//        ColumnMapping elementMap = elementMapping.get();
+//        
+//        Type elementType = elementMapping
+//                .orElseThrow(() -> new PrestoException(NOT_FOUND, "Couldn't interpret ARRAY base type: " + baseJdbcType))
+//                .getType();
+        return ColumnMapping.blockMapping(
+            arrayType,
+            blockReadFunction,
+            blockWriteFunction);
+    }
+    
+//    public static BlockReadFunction arrayReadFunction()
+//    {
+//        return (resultSet, index) -> {
+//            Array array = resultSet.getArray(index);
+//            
+//            return null;
+//        };
+//    }
+//    
+//    public static BlockWriteFunction arrayWriteFunction()
+//    {
+//        return (statement, index, value) -> {
+//            System.out.println("In Array Write");
+//            if (value instanceof IntArrayBlock) {
+//                int positionCount = value.getPositionCount();
+//                Object[] valuesArray = new Object[positionCount];
+//                for (int i = 0; i < positionCount; i++) {
+//                    int val = value.getInt(i, 0);
+//                    valuesArray[i] = val;
+//                }
+////                Array jdbcArray = connection.createArrayOf("", valuesArray);
+//                statement.setArray(index, null);
+//            }
+////            statement.setArray(parameterIndex, x);
+//        };
+//
+//    }
 
     public static ColumnMapping booleanColumnMapping()
     {

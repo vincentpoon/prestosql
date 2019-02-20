@@ -37,6 +37,11 @@ public final class WriteMapping
     {
         return new WriteMapping(dataType, writeFunction);
     }
+    
+    public static WriteMapping blockMapping(String dataType, BlockWriteFunction writeFunction)
+    {
+        return new WriteMapping(dataType, writeFunction);
+    }
 
     private final String dataType;
     private final WriteFunction writeFunction;

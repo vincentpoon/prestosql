@@ -14,9 +14,12 @@
 package io.prestosql.spi.connector;
 
 import io.airlift.slice.Slice;
+import io.prestosql.spi.PrestoException;
+import io.prestosql.spi.block.Block;
 import io.prestosql.spi.type.Type;
 
 import java.io.Closeable;
+import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
 
 public interface RecordCursor
         extends Closeable
@@ -34,6 +37,11 @@ public interface RecordCursor
     Type getType(int field);
 
     boolean advanceNextPosition();
+
+    default Block getBlock(int field)
+    {
+       throw new PrestoException(NOT_SUPPORTED, "Block not supported");
+    }
 
     boolean getBoolean(int field);
 

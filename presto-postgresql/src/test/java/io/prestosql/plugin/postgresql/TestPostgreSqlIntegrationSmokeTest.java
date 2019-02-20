@@ -83,6 +83,51 @@ public class TestPostgreSqlIntegrationSmokeTest
         assertQuery("SELECT * FROM test_insert", "SELECT 123 x, 'test' y");
         assertUpdate("DROP TABLE test_insert");
     }
+    
+    // TODO: same as TestHiveIntegrationSmokeTest#testArrays
+    // remove when more connectors support arrays
+    @Test
+    public void testArrays()
+            throws Exception
+    {
+        assertUpdate("CREATE TABLE tmp_array1 AS SELECT ARRAY[1, 2, NULL] AS col", 1);
+        assertQuery("SELECT col[2] FROM tmp_array1", "SELECT 2");
+        assertQuery("SELECT col[3] FROM tmp_array1", "SELECT NULL");
+
+        assertUpdate("CREATE TABLE tmp_array2 AS SELECT ARRAY[1.0E0, 2.5E0, 3.5E0] AS col", 1);
+        assertQuery("SELECT col[2] FROM tmp_array2", "SELECT 2.5");
+
+        assertUpdate("CREATE TABLE tmp_array3 AS SELECT ARRAY['puppies', 'kittens', NULL] AS col", 1);
+        assertQuery("SELECT col[2] FROM tmp_array3", "SELECT 'kittens'");
+        assertQuery("SELECT col[3] FROM tmp_array3", "SELECT NULL");
+
+        assertUpdate("CREATE TABLE tmp_array4 AS SELECT ARRAY[TRUE, NULL] AS col", 1);
+        assertQuery("SELECT col[1] FROM tmp_array4", "SELECT TRUE");
+        assertQuery("SELECT col[2] FROM tmp_array4", "SELECT NULL");
+
+        assertUpdate("CREATE TABLE tmp_array5 AS SELECT ARRAY[ARRAY[1, 2], NULL, ARRAY[3, 4]] AS col", 1);
+        assertQuery("SELECT col[1][2] FROM tmp_array5", "SELECT 2");
+
+        assertUpdate("CREATE TABLE tmp_array6 AS SELECT ARRAY[ARRAY['\"hi\"'], NULL, ARRAY['puppies']] AS col", 1);
+        assertQuery("SELECT col[1][1] FROM tmp_array6", "SELECT '\"hi\"'");
+        assertQuery("SELECT col[3][1] FROM tmp_array6", "SELECT 'puppies'");
+
+        assertUpdate("CREATE TABLE tmp_array7 AS SELECT ARRAY[ARRAY[INTEGER'1', INTEGER'2'], NULL, ARRAY[INTEGER'3', INTEGER'4']] AS col", 1);
+        assertQuery("SELECT col[1][2] FROM tmp_array7", "SELECT 2");
+
+        assertUpdate("CREATE TABLE tmp_array8 AS SELECT ARRAY[ARRAY[SMALLINT'1', SMALLINT'2'], NULL, ARRAY[SMALLINT'3', SMALLINT'4']] AS col", 1);
+        assertQuery("SELECT col[1][2] FROM tmp_array8", "SELECT 2");
+
+        assertUpdate("CREATE TABLE tmp_array9 AS SELECT ARRAY[ARRAY[TINYINT'1', TINYINT'2'], NULL, ARRAY[TINYINT'3', TINYINT'4']] AS col", 1);
+        assertQuery("SELECT col[1][2] FROM tmp_array9", "SELECT 2");
+
+        assertUpdate("CREATE TABLE tmp_array10 AS SELECT ARRAY[ARRAY[DECIMAL '3.14']] AS col1, ARRAY[ARRAY[DECIMAL '12345678901234567890.0123456789']] AS col2", 1);
+        assertQuery("SELECT col1[1][1] FROM tmp_array10", "SELECT 3.14");
+        assertQuery("SELECT col2[1][1] FROM tmp_array10", "SELECT 12345678901234567890.0123456789");
+
+        assertUpdate("CREATE TABLE tmp_array13 AS SELECT ARRAY[ARRAY[REAL'1.234', REAL'2.345'], NULL, ARRAY[REAL'3.456', REAL'4.567']] AS col", 1);
+        assertQuery("SELECT col[1][2] FROM tmp_array13", "SELECT 2.345");
+    }
 
     @Test
     public void testViews()
