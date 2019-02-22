@@ -13,29 +13,55 @@
  */
 package io.prestosql.plugin.postgresql;
 
+import io.airlift.slice.Slice;
 import io.prestosql.plugin.jdbc.BaseJdbcClient;
 import io.prestosql.plugin.jdbc.BaseJdbcConfig;
+import io.prestosql.plugin.jdbc.BlockReadFunction;
 import io.prestosql.plugin.jdbc.BlockWriteFunction;
+import io.prestosql.plugin.jdbc.BooleanReadFunction;
 import io.prestosql.plugin.jdbc.ColumnMapping;
+import io.prestosql.plugin.jdbc.DoubleReadFunction;
 import io.prestosql.plugin.jdbc.DriverConnectionFactory;
+import io.prestosql.plugin.jdbc.JdbcClient;
+import io.prestosql.plugin.jdbc.JdbcColumnHandle;
 import io.prestosql.plugin.jdbc.JdbcConnectorId;
 import io.prestosql.plugin.jdbc.JdbcOutputTableHandle;
+import io.prestosql.plugin.jdbc.JdbcTableHandle;
 import io.prestosql.plugin.jdbc.JdbcTypeHandle;
+import io.prestosql.plugin.jdbc.LongReadFunction;
+import io.prestosql.plugin.jdbc.ReadFunction;
+import io.prestosql.plugin.jdbc.SliceReadFunction;
 import io.prestosql.plugin.jdbc.StandardColumnMappings;
 import io.prestosql.plugin.jdbc.WriteMapping;
 import io.prestosql.spi.PrestoException;
+import io.prestosql.spi.block.ArrayBlock;
 import io.prestosql.spi.block.Block;
 import io.prestosql.spi.block.BlockBuilder;
 import io.prestosql.spi.block.ByteArrayBlock;
 import io.prestosql.spi.block.IntArrayBlock;
+import static io.prestosql.plugin.jdbc.JdbcErrorCode.JDBC_ERROR;
 import io.prestosql.spi.block.LongArrayBlock;
 import io.prestosql.spi.block.ShortArrayBlock;
 import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.type.ArrayType;
+import io.prestosql.spi.type.CharType;
+import io.prestosql.spi.type.DecimalType;
+import io.prestosql.spi.type.DoubleType;
+import io.prestosql.spi.type.IntegerType;
+import io.prestosql.spi.type.RealType;
+import io.prestosql.spi.type.StandardTypes;
+import io.prestosql.spi.type.TinyintType;
 import io.prestosql.spi.type.Type;
+import io.prestosql.spi.type.TypeUtils;
+import io.prestosql.spi.type.VarbinaryType;
+import io.prestosql.spi.type.VarcharType;
+
 import org.postgresql.Driver;
 import org.postgresql.jdbc.PgConnection;
 
+import com.google.common.base.Preconditions;
+
+import static io.prestosql.spi.StandardErrorCode.FUNCTION_IMPLEMENTATION_ERROR;
 import javax.inject.Inject;
 
 import java.sql.Array;
@@ -45,15 +71,29 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
+import static io.prestosql.plugin.jdbc.StandardColumnMappings.arrayColumnMapping;
+import static io.prestosql.plugin.jdbc.StandardColumnMappings.arrayWriteFunction;
+import static io.prestosql.plugin.jdbc.StandardColumnMappings.tinyintWriteFunction;
 import static io.prestosql.plugin.jdbc.StandardColumnMappings.varbinaryWriteFunction;
+import static io.prestosql.spi.type.DoubleType.DOUBLE;
+import static io.prestosql.spi.type.RealType.REAL;
+import static io.prestosql.spi.type.TinyintType.TINYINT;
 import static io.prestosql.spi.type.VarbinaryType.VARBINARY;
 import static java.lang.String.format;
+import static java.lang.String.join;
 import static java.lang.reflect.Array.get;
 import static java.lang.reflect.Array.getLength;
+import static java.util.stream.Collectors.joining;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toMap;
 
 public class PostgreSqlClient
         extends BaseJdbcClient
@@ -105,6 +145,65 @@ public class PostgreSqlClient
     }
 
     @Override
+    public List<JdbcColumnHandle> getColumns(ConnectorSession session, JdbcTableHandle tableHandle) {
+        List<JdbcColumnHandle> columns = super.getColumns(session, tableHandle);
+        // get the dimensions of ARRAY type (which isn't included in JDBC DatabaseMetadata results)
+        Map<String, Integer> arrayColumns = columns
+                .stream()
+                .filter(column -> column.getColumnType() instanceof ArrayType)
+                .collect(toMap(arrayColumn -> arrayColumn.getColumnName(), arrayColumn -> 0));
+
+        if (arrayColumns.size() > 0) {
+            try (Connection connection = connectionFactory.openConnection()) {
+                String sql = String.format(
+                        "SELECT att.attname, att.attndims " + 
+                                "FROM pg_attribute att " + 
+                                "  JOIN pg_class tbl ON tbl.oid = att.attrelid " + 
+                                "  JOIN pg_namespace ns ON tbl.relnamespace = ns.oid " + 
+                                "WHERE ns.nspname = '%s' " + 
+                                "AND tbl.relname = '%s' " + 
+                                "AND att.attname in ('%s')",
+                        tableHandle.getSchemaName(),
+                        tableHandle.getTableName(),
+                        arrayColumns.keySet().stream().collect(joining("','"))
+                        );
+                try (ResultSet resultSet = connection.createStatement().executeQuery(sql)) {
+                    while (resultSet.next()) {
+                        arrayColumns.put(resultSet.getString(1), resultSet.getInt(2));
+                    }
+                }
+            } catch (SQLException e) {
+                throw new PrestoException(JDBC_ERROR, e);
+            }
+            // set ArrayType and JdbcTypeHandle with the correct # of dimensions
+            columns = columns.stream().map(column -> {
+                if (column.getColumnType() instanceof ArrayType) {
+                    Integer numDimensions = arrayColumns.get(column.getColumnName());
+                    if (numDimensions <= 0) {
+                        throw new PrestoException(JDBC_ERROR, "Didn't find dimensions for column: " + column);
+                    }
+                    else if (numDimensions > 0) {
+                        JdbcTypeHandle jdbcTypeHandle = column.getJdbcTypeHandle();
+                        JdbcTypeHandle typeHandleCopy = new JdbcTypeHandle(
+                                jdbcTypeHandle.getJdbcType(),
+                                jdbcTypeHandle.getJdbcTypeName(),
+                                jdbcTypeHandle.getColumnSize(),
+                                jdbcTypeHandle.getDecimalDigits(),
+                                numDimensions);
+                        Type arrayType = column.getColumnType();
+                        while (numDimensions-- > 1) {
+                            arrayType = new ArrayType(arrayType);
+                        }
+                        return new JdbcColumnHandle(column.getConnectorId(), column.getColumnName(), typeHandleCopy, arrayType);
+                    }
+                }
+                return column;
+                }).collect(toList());
+        }
+        return columns;
+    }
+
+    @Override
     public Optional<ColumnMapping> toPrestoType(ConnectorSession session, JdbcTypeHandle typeHandle)
     {
         switch (typeHandle.getJdbcType()) {
@@ -112,122 +211,93 @@ public class PostgreSqlClient
                 try (Connection connection = connectionFactory.openConnection()) {
                     String jdbcTypeName = typeHandle.getJdbcTypeName();
                     //throw if no leading _
-                    String baseJdbcTypeName = jdbcTypeName.replaceFirst("_", "");
+                    String baseJdbcTypeName = jdbcTypeName.replaceAll("_", "");
                     //TODO better way for getting base
 //                    int jdbcType = connection.unwrap(PgConnection.class).getTypeInfo().getPGArrayElement();
-                    int baseJdbcType = connection.unwrap(PgConnection.class).getTypeInfo().getSQLType(baseJdbcTypeName);
-                    JdbcTypeHandle baseTypeHandle = new JdbcTypeHandle(baseJdbcType, baseJdbcTypeName, typeHandle.getColumnSize(), typeHandle.getDecimalDigits());
+                    PgConnection unwrap = connection.unwrap(PgConnection.class);
+                    int baseJdbcType = unwrap.getTypeInfo().getSQLType(baseJdbcTypeName);
+                    int arrayDimensions = typeHandle.getArrayDimensions();
+                    JdbcTypeHandle baseTypeHandle = new JdbcTypeHandle(baseJdbcType, baseJdbcTypeName, typeHandle.getColumnSize(), typeHandle.getDecimalDigits(), arrayDimensions);
+
                     ColumnMapping elementMapping = toPrestoType(session, baseTypeHandle).get();
                     Type elementType = elementMapping.getType();
-                    return Optional.of(StandardColumnMappings.arrayColumnMapping(new ArrayType(elementType),
-                        (resultSet, columnIndex) -> {
-                            Array jdbcArray = resultSet.getArray(columnIndex);
-                            Object[] array = toBoxedArray(jdbcArray.getArray());
-                            if (array != null) {
-                                BlockBuilder blockBuilder = elementType.createBlockBuilder(null, array.length);
-                                for (int i = 0; i < array.length; i++) {
-                                    elementType.writeLong(blockBuilder, (long) array[i]);
-                                    blockBuilder.writeInt((int) array[i]);
-                                }
-                                return blockBuilder.build();
-                            }
-                            return null;
-                        },
-                        arrayWriteFunction(elementType, baseJdbcTypeName)));
+                    ArrayType arrayType = new ArrayType(elementType);
+                    while (arrayDimensions-- > 1) {
+                        arrayType = new ArrayType(arrayType);
+                    }
+                    
+                    return Optional.of(
+                            arrayColumnMapping(
+                                    this,
+                                    arrayType,
+                                    baseTypeHandle
+                                    ));
                 } catch (SQLException e) {
-                    // TODO Auto-generated catch block
-                    e.printStackTrace();
+                    throw new PrestoException(JDBC_ERROR, e);
                 }
         }
         // TODO support PostgreSQL's TIMESTAMP WITH TIME ZONE and TIME WITH TIME ZONE explicitly, otherwise predicate pushdown for these types may be incorrect
         return super.toPrestoType(session, typeHandle);
     }
+
+
+
     
-    private Object[] toBoxedArray(Object jdbcArray)
-    {
-        if (!jdbcArray.getClass().isArray()) {
-            return null;
-        }
 
-        if (!jdbcArray.getClass().getComponentType().isPrimitive()) {
-            return (Object[]) jdbcArray;
-        }
-        
-        int elementCount = getLength(jdbcArray);
-        Object[] elements = new Object[elementCount];
 
-        for (int i = 0; i < elementCount; i++) {
-            elements[i] = get(jdbcArray, i);
+    
+    // PostgreSql requires multidimensional arrays to have sub-arrays with matching dimensions, including arrays of null
+    @Override
+    protected void processArrayNulls(Object[] valuesArray, int lengthSeen) {
+        for (int i = 0; i < valuesArray.length; i++) {
+            if (valuesArray[i] == null) {
+                valuesArray[i] = new Object[lengthSeen];
+            }
         }
-
-        return elements;
     }
 
-    private BlockWriteFunction arrayWriteFunction(Type elementType, String baseJdbcTypeName) {
-        return (connection, statement, index, block) -> {
-//            int positionCount = block.getPositionCount();
-//            Object[] valuesArray = new Object[positionCount];
-//            for (int i = 0; i < positionCount; i++) {
-//                Object val;
-//                if (block instanceof IntArrayBlock) {
-//                    val = block.getInt(i, 0);
-//                }
-//                else if (block instanceof LongArrayBlock) {
-//                    val = null;
-//                } else {
-//                    val = null;
-//                }
-//                valuesArray[i] = val;
-//            }
-            System.out.println("type is: " + block.getClass().toString());
-            BiFunction<Block, Integer, Object> valueGetter;
-            if (block instanceof IntArrayBlock) {
-                valueGetter = (inputBlock, position) -> inputBlock.getInt(position, 0);
-            } 
-            else if (block instanceof LongArrayBlock) {
-                valueGetter = (inputBlock, position) -> inputBlock.getLong(position, 0);
-            }
-            else if (block instanceof ShortArrayBlock) {
-                valueGetter = (inputBlock, position) -> inputBlock.getShort(position, 0);
-            }
-//            else if (block instanceof ByteArrayBlock) {
-////                valueGetter = (inputBlock, position) -> inputBlock.getby
-//            }
-            else {
-                throw new PrestoException(null, "");
-            }
-            Object[] valuesArray = toObjectArray(block, valueGetter);
-            Array jdbcArray = connection.createArrayOf(baseJdbcTypeName, valuesArray);
-            statement.setArray(index, jdbcArray);
-        };
-    }
-
-    private Object[] toObjectArray(Block block, BiFunction<Block, Integer, Object> valueGetter) {
-        int positionCount = block.getPositionCount();
-        Object[] valuesArray = new Object[positionCount];
-        for (int i = 0; i < positionCount; i++) {
-            if (block.isNull(i)) {
-                valuesArray[i] = null;
-            } else {
-                valuesArray[i] = valueGetter.apply(block, i);
-            }
+    // PostgreSql jdbc array element names understood by org.postgresql.jdbc2.TypeInfoCache#getPGArrayType
+    @Override
+    protected String toArrayElementName(Type elementType) {
+        String baseJdbcTypeName = super.toArrayElementName(elementType);
+        if (DOUBLE.equals(elementType)) {
+            baseJdbcTypeName = "float";
         }
-        return valuesArray;
+        else if (REAL.equals(elementType)) {
+            baseJdbcTypeName = "float4";
+        }
+        else if (TINYINT.equals(elementType)) {
+            baseJdbcTypeName = "smallint";
+        }
+        else if (elementType instanceof VarcharType) {
+            baseJdbcTypeName = "varchar";
+        }
+        else if (elementType instanceof CharType) {
+            baseJdbcTypeName = "char";
+        }
+        else if (elementType instanceof DecimalType) {
+            baseJdbcTypeName = "decimal";
+        }
+        else if (elementType instanceof ArrayType) {
+            baseJdbcTypeName = toArrayElementName(((ArrayType) elementType).getElementType());
+        }
+        return baseJdbcTypeName;
     }
-
 
     @Override
     public WriteMapping toWriteMapping(Type type)
     {
         if (type instanceof ArrayType) {
             Type elementType = ((ArrayType) type).getElementType();
-            WriteMapping elementMapping = toWriteMapping(elementType);
-            return WriteMapping.blockMapping(elementMapping.getDataType() + "[]", arrayWriteFunction(elementType, elementMapping.getDataType()));
+            String baseJdbcTypeName = toWriteMapping(elementType).getDataType();
+            return WriteMapping.blockMapping(baseJdbcTypeName + "[]", arrayWriteFunction(this, elementType));
         }
         if (VARBINARY.equals(type)) {
             return WriteMapping.sliceMapping("bytea", varbinaryWriteFunction());
         }
-
+        if (TINYINT.equals(type)) {
+            return WriteMapping.longMapping("smallint", tinyintWriteFunction());
+        }
         return super.toWriteMapping(type);
     }
 }

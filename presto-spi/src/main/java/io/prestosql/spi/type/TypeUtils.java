@@ -85,6 +85,16 @@ public final class TypeUtils
             type.writeSlice(blockBuilder, slice, 0, slice.length());
         }
         else {
+            if (type instanceof ArrayType && value.getClass().isArray()) {
+                // multidimensional array
+                Type elementType = ((ArrayType) type).getElementType();
+                Object[] elements = (Object[]) value;
+                BlockBuilder builder = elementType.createBlockBuilder(null, elements.length);
+                for (int i = 0; i < elements.length; i++) {
+                    writeNativeValue(elementType, builder, elements[i]);
+                }
+                value = builder.build();
+            }
             type.writeObject(blockBuilder, value);
         }
     }

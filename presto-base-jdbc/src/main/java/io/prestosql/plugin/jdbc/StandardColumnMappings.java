@@ -17,14 +17,16 @@ import com.google.common.base.CharMatcher;
 import com.google.common.primitives.Shorts;
 import com.google.common.primitives.SignedBytes;
 
-import io.prestosql.spi.PrestoException;
-import io.prestosql.spi.block.IntArrayBlock;
+import io.prestosql.spi.block.BlockBuilder;
 import io.prestosql.spi.type.ArrayType;
 import io.prestosql.spi.type.CharType;
 import io.prestosql.spi.type.DecimalType;
 import io.prestosql.spi.type.Decimals;
 import io.prestosql.spi.type.Type;
+import io.prestosql.spi.type.TypeUtils;
 import io.prestosql.spi.type.VarcharType;
+import sun.tools.tree.ThisExpression;
+
 import org.joda.time.DateTimeZone;
 import org.joda.time.chrono.ISOChronology;
 
@@ -44,7 +46,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.airlift.slice.Slices.wrappedBuffer;
 import static io.prestosql.plugin.jdbc.ColumnMapping.DISABLE_PUSHDOWN;
-import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.prestosql.spi.type.BigintType.BIGINT;
 import static io.prestosql.spi.type.BooleanType.BOOLEAN;
 import static io.prestosql.spi.type.CharType.createCharType;
@@ -68,11 +69,12 @@ import static java.lang.Float.intBitsToFloat;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.lang.Math.toIntExact;
+import static java.lang.reflect.Array.get;
+import static java.lang.reflect.Array.getLength;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.DAYS;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.joda.time.DateTimeZone.UTC;
-import static io.prestosql.spi.StandardErrorCode.NOT_FOUND;
 
 public final class StandardColumnMappings
 {
@@ -80,48 +82,52 @@ public final class StandardColumnMappings
 
     private static final ISOChronology UTC_CHRONOLOGY = ISOChronology.getInstanceUTC();
 
-    public static ColumnMapping arrayColumnMapping(Type arrayType, BlockReadFunction blockReadFunction, BlockWriteFunction blockWriteFunction)
+    public static ColumnMapping arrayColumnMapping(JdbcClient client, ArrayType arrayType, JdbcTypeHandle baseTypeHandle)
     {
-
-//        Optional<ColumnMapping> elementMapping = jdbcTypeToPrestoType(baseJdbcType);
-//        ColumnMapping elementMap = elementMapping.get();
-//        
-//        Type elementType = elementMapping
-//                .orElseThrow(() -> new PrestoException(NOT_FOUND, "Couldn't interpret ARRAY base type: " + baseJdbcType))
-//                .getType();
         return ColumnMapping.blockMapping(
-            arrayType,
-            blockReadFunction,
-            blockWriteFunction);
+                arrayType,
+                arrayReadFunction(arrayType.getElementType()),
+                arrayWriteFunction(client, arrayType.getElementType()));
     }
     
-//    public static BlockReadFunction arrayReadFunction()
-//    {
-//        return (resultSet, index) -> {
-//            Array array = resultSet.getArray(index);
-//            
-//            return null;
-//        };
-//    }
-//    
-//    public static BlockWriteFunction arrayWriteFunction()
-//    {
-//        return (statement, index, value) -> {
-//            System.out.println("In Array Write");
-//            if (value instanceof IntArrayBlock) {
-//                int positionCount = value.getPositionCount();
-//                Object[] valuesArray = new Object[positionCount];
-//                for (int i = 0; i < positionCount; i++) {
-//                    int val = value.getInt(i, 0);
-//                    valuesArray[i] = val;
-//                }
-////                Array jdbcArray = connection.createArrayOf("", valuesArray);
-//                statement.setArray(index, null);
-//            }
-////            statement.setArray(parameterIndex, x);
-//        };
-//
-//    }
+    private static BlockReadFunction arrayReadFunction(Type elementType) {
+        return (resultSet, columnIndex) -> {
+            Array jdbcArray = resultSet.getArray(columnIndex);
+            Object[] valueArray = toBoxedArray(jdbcArray.getArray());
+            if (valueArray != null) {
+                BlockBuilder blockBuilder = elementType.createBlockBuilder(null, valueArray.length);
+                for (int i = 0; i < valueArray.length; i++) {
+                    TypeUtils.writeNativeValue(elementType, blockBuilder, valueArray[i]);
+                }
+                return blockBuilder.build();
+            }
+            return null;
+        };
+    }
+    
+    public static BlockWriteFunction arrayWriteFunction(JdbcClient client, Type elementType) {
+        return (connection, statement, index, block) -> {
+            Array jdbcArray = client.getArray(connection, elementType, block);
+            statement.setArray(index, jdbcArray);
+        };
+    }
+
+    private static Object[] toBoxedArray(Object jdbcArray)
+    {
+        if (!jdbcArray.getClass().isArray()) {
+            return null;
+        }
+        if (!jdbcArray.getClass().getComponentType().isPrimitive()) {
+            return (Object[]) jdbcArray;
+        }
+        int elementCount = getLength(jdbcArray);
+        Object[] elements = new Object[elementCount];
+        
+        for (int i = 0; i < elementCount; i++) {
+            elements[i] = get(jdbcArray, i);
+        }
+        return elements;
+    }
 
     public static ColumnMapping booleanColumnMapping()
     {

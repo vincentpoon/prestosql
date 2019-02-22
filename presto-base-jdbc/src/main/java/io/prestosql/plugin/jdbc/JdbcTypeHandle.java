@@ -27,18 +27,30 @@ public final class JdbcTypeHandle
     private final String jdbcTypeName;
     private final int columnSize;
     private final int decimalDigits;
+    private final int arrayDimensions;
 
     @JsonCreator
     public JdbcTypeHandle(
             @JsonProperty("jdbcType") int jdbcType,
             @JsonProperty("jdbcTypeName") String jdbcTypeName,
             @JsonProperty("columnSize") int columnSize,
-            @JsonProperty("decimalDigits") int decimalDigits)
+            @JsonProperty("decimalDigits") int decimalDigits,
+            @JsonProperty("arrayDimensions") int arrayDimensions)
     {
         this.jdbcType = jdbcType;
         this.jdbcTypeName = requireNonNull(jdbcTypeName, "jdbcTypeName is null");
         this.columnSize = columnSize;
         this.decimalDigits = decimalDigits;
+        this.arrayDimensions = arrayDimensions;
+    }
+    
+    public JdbcTypeHandle(
+             int jdbcType,
+             String jdbcTypeName,
+             int columnSize,
+             int decimalDigits)
+    {
+        this(jdbcType, jdbcTypeName, columnSize, decimalDigits, 0);
     }
 
     @JsonProperty
@@ -63,6 +75,12 @@ public final class JdbcTypeHandle
     public int getDecimalDigits()
     {
         return decimalDigits;
+    }
+    
+    @JsonProperty
+    public int getArrayDimensions()
+    {
+        return arrayDimensions;
     }
 
     @Override
@@ -95,6 +113,7 @@ public final class JdbcTypeHandle
                 .add("jdbcTypeName", jdbcTypeName)
                 .add("columnSize", columnSize)
                 .add("decimalDigits", decimalDigits)
+                .add("arrayDimensions", arrayDimensions)
                 .toString();
     }
 }

@@ -13,6 +13,7 @@
  */
 package io.prestosql.plugin.jdbc;
 
+import io.prestosql.spi.block.Block;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.ConnectorSplitSource;
@@ -24,6 +25,7 @@ import io.prestosql.spi.type.Type;
 
 import javax.annotation.Nullable;
 
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -86,4 +88,7 @@ public interface JdbcClient
             throws SQLException;
 
     TableStatistics getTableStatistics(ConnectorSession session, JdbcTableHandle handle, TupleDomain<ColumnHandle> tupleDomain);
+    
+    public Array getArray(Connection connection, Type elementType, Block arrayBlock)
+            throws SQLException; 
 }

@@ -19,6 +19,7 @@ import io.prestosql.spi.block.Block;
 import io.prestosql.spi.type.Type;
 
 import java.io.Closeable;
+
 import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
 
 public interface RecordCursor
@@ -40,7 +41,7 @@ public interface RecordCursor
 
     default Block getBlock(int field)
     {
-       throw new PrestoException(NOT_SUPPORTED, "Block not supported");
+        throw new PrestoException(NOT_SUPPORTED, "Block not supported");
     }
 
     boolean getBoolean(int field);

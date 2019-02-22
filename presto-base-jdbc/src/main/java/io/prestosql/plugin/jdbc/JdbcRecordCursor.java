@@ -193,9 +193,10 @@ public class JdbcRecordCursor
         }
         throw new UnsupportedOperationException();
     }
-    
+
     @Override
-    public Block getBlock(int field) {
+    public Block getBlock(int field)
+    {
         checkState(!closed, "cursor is closed");
         try {
             return blockReadFunctions[field].readBlock(resultSet, field + 1);

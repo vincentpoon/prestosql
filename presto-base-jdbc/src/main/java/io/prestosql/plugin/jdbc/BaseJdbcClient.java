@@ -17,7 +17,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.log.Logger;
+import io.airlift.slice.Slice;
 import io.prestosql.spi.PrestoException;
+import io.prestosql.spi.block.Block;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ColumnMetadata;
 import io.prestosql.spi.connector.ConnectorSession;
@@ -28,14 +30,18 @@ import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.connector.TableNotFoundException;
 import io.prestosql.spi.predicate.TupleDomain;
 import io.prestosql.spi.statistics.TableStatistics;
+import io.prestosql.spi.type.ArrayType;
 import io.prestosql.spi.type.CharType;
 import io.prestosql.spi.type.DecimalType;
 import io.prestosql.spi.type.Type;
+import io.prestosql.spi.type.TypeUtils;
+import io.prestosql.spi.type.VarbinaryType;
 import io.prestosql.spi.type.VarcharType;
 
 import javax.annotation.Nullable;
 import javax.annotation.PreDestroy;
 
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
@@ -67,6 +73,7 @@ import static io.prestosql.plugin.jdbc.StandardColumnMappings.smallintWriteFunct
 import static io.prestosql.plugin.jdbc.StandardColumnMappings.tinyintWriteFunction;
 import static io.prestosql.plugin.jdbc.StandardColumnMappings.varbinaryWriteFunction;
 import static io.prestosql.plugin.jdbc.StandardColumnMappings.varcharWriteFunction;
+import static io.prestosql.spi.StandardErrorCode.FUNCTION_IMPLEMENTATION_ERROR;
 import static io.prestosql.spi.StandardErrorCode.NOT_FOUND;
 import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.prestosql.spi.type.BigintType.BIGINT;
@@ -447,6 +454,64 @@ public class BaseJdbcClient
                 escapeNamePattern(schemaName, escape),
                 escapeNamePattern(tableName, escape),
                 new String[] {"TABLE", "VIEW"});
+    }
+    
+    // extract an array of elementType from the given Block
+    protected Object[] getObjectArray(Type elementType, Block block) {
+        int positionCount = block.getPositionCount();
+        Object[] valuesArray = new Object[positionCount];
+        int lengthSeen = 1; // track length of subarray
+        for (int i = 0; i < positionCount; i++) {
+            if (block.isNull(i)) {
+                valuesArray[i] = null;
+            } 
+            else {
+                Object objectValue = TypeUtils.readNativeValue(elementType, block, i);
+                if (objectValue instanceof Slice) {
+                    if (elementType instanceof VarcharType || elementType instanceof CharType) {
+                        objectValue = ((Slice) objectValue).toStringUtf8();
+                    }
+                    else if (elementType instanceof VarbinaryType) {
+                        objectValue = ((Slice) objectValue).getBytes();
+                    } else if (elementType instanceof DecimalType) {
+                        
+                    }
+                    else {
+                        throw new PrestoException(FUNCTION_IMPLEMENTATION_ERROR, "Slice of unexpected type: " + elementType);
+                    }
+                }
+                // process subarray of multi-dimensional array
+                else if (elementType instanceof ArrayType) {
+                    if (!(objectValue instanceof Block)) {
+                        throw new PrestoException(FUNCTION_IMPLEMENTATION_ERROR, "Object is not a Block, but " + objectValue.getClass());
+                    }
+                    objectValue = getObjectArray(((ArrayType) elementType).getElementType(), (Block) objectValue);
+                    lengthSeen = ((Object[])objectValue).length;
+                }
+                valuesArray[i] = objectValue;
+            }
+        }
+        // multidimensional arrays should have sub-arrays with matching dimensions, including arrays of null
+        if (elementType instanceof ArrayType) {
+            processArrayNulls(valuesArray, lengthSeen);
+        }
+        return valuesArray;
+    }
+
+    @Override
+    public Array getArray(Connection connection, Type elementType, Block arrayBlock)
+            throws SQLException
+    {
+        Object[] valuesArray = getObjectArray(elementType, arrayBlock);
+        return connection.createArrayOf(toArrayElementName(elementType), valuesArray);
+    }
+    
+    protected String toArrayElementName(Type elementType) {
+        return toWriteMapping(elementType).getDataType();
+    }
+
+    protected void processArrayNulls(Object[] valuesArray, int lengthSeen) {
+        // used for implementations that need special handling of null array values
     }
 
     protected SchemaTableName getSchemaTableName(ResultSet resultSet)

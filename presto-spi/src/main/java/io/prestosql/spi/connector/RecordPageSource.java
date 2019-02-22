@@ -121,12 +121,8 @@ public class RecordPageSource
                             type.writeSlice(output, slice, 0, slice.length());
                         }
                         else if (javaType == Block.class) {
-//                            BlockBuilder builder = output.beginBlockEntry();
                             Block block = cursor.getBlock(column);
                             type.writeObject(output, block);
-//                            type.appendTo(output, position, builder);
-//                            cursor.getBlock(field)
-                            
                         }
                         else {
                             type.writeObject(output, cursor.getObject(column));
