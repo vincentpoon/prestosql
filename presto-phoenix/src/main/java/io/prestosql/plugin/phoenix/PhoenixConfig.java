@@ -13,11 +13,14 @@
  */
 package io.prestosql.plugin.phoenix;
 
-import com.google.common.base.Splitter;
 import io.airlift.configuration.Config;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.HBaseConfiguration;
 
 import javax.validation.constraints.NotNull;
 
+import java.util.Map.Entry;
 import java.util.Properties;
 
 public class PhoenixConfig
@@ -31,7 +34,7 @@ public class PhoenixConfig
         return connectionUrl;
     }
 
-    @Config("connection-url")
+    @Config("phoenix.connection-url")
     public PhoenixConfig setConnectionUrl(String connectionUrl)
     {
         this.connectionUrl = connectionUrl;
@@ -44,21 +47,13 @@ public class PhoenixConfig
         return connectionProperties;
     }
 
-    @Config("connection-properties")
-    public PhoenixConfig setConnectionProperties(String properties)
+    @Config("phoenix.hbase-site-path")
+    public PhoenixConfig setConnectionProperties(String configPath)
     {
-        for (String entry : Splitter.on(";").split(properties)) {
-            if (entry.length() > 0) {
-                int index = entry.indexOf('=');
-                if (index > 0) {
-                    String name = entry.substring(0, index);
-                    String value = entry.substring(index + 1);
-                    connectionProperties.setProperty(name, value);
-                }
-                if (index <= 0) {
-                    connectionProperties.setProperty(entry, "");
-                }
-            }
+        Configuration config = HBaseConfiguration.create();
+        config.addResource(new Path(configPath));
+        for (Entry<String, String> entry : config) {
+            connectionProperties.put(entry.getKey(), entry.getValue());
         }
         return this;
     }

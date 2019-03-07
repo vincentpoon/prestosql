@@ -15,122 +15,35 @@ package io.prestosql.plugin.phoenix;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.collect.ImmutableList;
-import io.prestosql.spi.connector.ConnectorInsertTableHandle;
-import io.prestosql.spi.connector.ConnectorOutputTableHandle;
+import io.prestosql.plugin.jdbc.JdbcOutputTableHandle;
 import io.prestosql.spi.type.Type;
 
 import javax.annotation.Nullable;
 
 import java.util.List;
-import java.util.Objects;
-
-import static com.google.common.base.Preconditions.checkArgument;
-import static java.lang.String.format;
-import static java.util.Objects.requireNonNull;
 
 public class PhoenixOutputTableHandle
-        implements ConnectorOutputTableHandle, ConnectorInsertTableHandle
+        extends JdbcOutputTableHandle
 {
-    private final String connectorId;
-    private final String catalogName;
-    private final String schemaName;
-    private final String tableName;
-    private final List<String> columnNames;
-    private final List<Type> columnTypes;
+    private final boolean hasUUIDRowkey;
 
     @JsonCreator
     public PhoenixOutputTableHandle(
-            @JsonProperty("connectorId") String connectorId,
             @JsonProperty("catalogName") @Nullable String catalogName,
             @JsonProperty("schemaName") @Nullable String schemaName,
             @JsonProperty("tableName") String tableName,
             @JsonProperty("columnNames") List<String> columnNames,
-            @JsonProperty("columnTypes") List<Type> columnTypes)
+            @JsonProperty("columnTypes") List<Type> columnTypes,
+            @JsonProperty("temporaryTableName") String temporaryTableName,
+            @JsonProperty("hadUUIDRowkey") boolean hasUUIDRowkey)
     {
-        this.connectorId = requireNonNull(connectorId, "connectorId is null");
-        this.catalogName = catalogName;
-        this.schemaName = schemaName;
-        this.tableName = requireNonNull(tableName, "tableName is null");
-
-        requireNonNull(columnNames, "columnNames is null");
-        requireNonNull(columnTypes, "columnTypes is null");
-        checkArgument(columnNames.size() == columnTypes.size(), "columnNames and columnTypes sizes don't match");
-        this.columnNames = ImmutableList.copyOf(columnNames);
-        this.columnTypes = ImmutableList.copyOf(columnTypes);
+        super(catalogName, schemaName, tableName, columnNames, columnTypes, temporaryTableName);
+        this.hasUUIDRowkey = hasUUIDRowkey;
     }
 
     @JsonProperty
-    public String getConnectorId()
+    public boolean hasUUIDRowkey()
     {
-        return connectorId;
-    }
-
-    @JsonProperty
-    @Nullable
-    public String getCatalogName()
-    {
-        return catalogName;
-    }
-
-    @JsonProperty
-    @Nullable
-    public String getSchemaName()
-    {
-        return schemaName;
-    }
-
-    @JsonProperty
-    public String getTableName()
-    {
-        return tableName;
-    }
-
-    @JsonProperty
-    public List<String> getColumnNames()
-    {
-        return columnNames;
-    }
-
-    @JsonProperty
-    public List<Type> getColumnTypes()
-    {
-        return columnTypes;
-    }
-
-    @Override
-    public String toString()
-    {
-        return format("phoenix:%s.%s.%s", catalogName, schemaName, tableName);
-    }
-
-    @Override
-    public int hashCode()
-    {
-        return Objects.hash(
-                connectorId,
-                catalogName,
-                schemaName,
-                tableName,
-                columnNames,
-                columnTypes);
-    }
-
-    @Override
-    public boolean equals(Object obj)
-    {
-        if (this == obj) {
-            return true;
-        }
-        if (obj == null || getClass() != obj.getClass()) {
-            return false;
-        }
-        PhoenixOutputTableHandle other = (PhoenixOutputTableHandle) obj;
-        return Objects.equals(this.connectorId, other.connectorId) &&
-                Objects.equals(this.catalogName, other.catalogName) &&
-                Objects.equals(this.schemaName, other.schemaName) &&
-                Objects.equals(this.tableName, other.tableName) &&
-                Objects.equals(this.columnNames, other.columnNames) &&
-                Objects.equals(this.columnTypes, other.columnTypes);
+        return hasUUIDRowkey;
     }
 }

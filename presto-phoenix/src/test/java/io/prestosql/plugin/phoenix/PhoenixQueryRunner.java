@@ -25,11 +25,12 @@ import org.intellij.lang.annotations.Language;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
-import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.List;
 import java.util.Map;
 
+import static io.airlift.tpch.TpchTable.LINE_ITEM;
+import static io.airlift.tpch.TpchTable.ORDERS;
+import static io.airlift.tpch.TpchTable.PART_SUPPLIER;
 import static io.prestosql.plugin.tpch.TpchMetadata.TINY_SCHEMA_NAME;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
 import static java.lang.String.format;
@@ -39,41 +40,40 @@ public final class PhoenixQueryRunner
     private static final Logger LOG = Logger.get(PhoenixQueryRunner.class);
     private static final String TPCH_SCHEMA = "tpch";
 
-    private static boolean tpchLoaded;
-    private static TestingPhoenixServer server = new TestingPhoenixServer();
-
     private PhoenixQueryRunner()
     {
     }
 
-    public static QueryRunner createPhoenixQueryRunner(Map<String, String> extraProperties, List<TpchTable<?>> tables)
+    public static QueryRunner createPhoenixQueryRunner(TestingPhoenixServer server)
             throws Exception
     {
         DistributedQueryRunner queryRunner = DistributedQueryRunner.builder(createSession())
                 .setNodeCount(4)
-                .setExtraProperties(extraProperties).build();
+                .build();
 
         queryRunner.installPlugin(new TpchPlugin());
         queryRunner.createCatalog("tpch", "tpch");
 
         Map<String, String> properties = ImmutableMap.<String, String>builder()
-                .put("connection-url", server.getJdbcUrl())
+                .put("phoenix.connection-url", server.getJdbcUrl())
                 .build();
 
         queryRunner.installPlugin(new PhoenixPlugin());
         queryRunner.createCatalog("phoenix", "phoenix", properties);
 
-        if (!tpchLoaded) {
+        if (!server.isTpchLoaded()) {
             createSchema(server, TPCH_SCHEMA);
-            copyTpchTables(queryRunner, "tpch", TINY_SCHEMA_NAME, createSession(), tables);
-            tpchLoaded = true;
+            copyTpchTables(queryRunner, "tpch", TINY_SCHEMA_NAME, createSession(), TpchTable.getTables());
+            server.setTpchLoaded();
+        }
+        else {
+            server.waitTpchLoaded();
         }
 
         return queryRunner;
     }
 
-    public static void createSchema(TestingPhoenixServer phoenixServer, String schema)
-            throws SQLException
+    private static void createSchema(TestingPhoenixServer phoenixServer, String schema)
     {
         try (Connection connection = DriverManager.getConnection(phoenixServer.getJdbcUrl());
                 Statement statement = connection.createStatement()) {
@@ -106,39 +106,25 @@ public final class PhoenixQueryRunner
     {
         QualifiedObjectName source = new QualifiedObjectName(catalog, schema, table.getTableName());
         String target = table.getTableName();
-
-        @Language("SQL")
-        String sql;
-        switch (target) {
-            case "customer":
-                sql = format("CREATE TABLE %s AS SELECT * FROM %s", target, source);
-                break;
-            case "lineitem":
-                sql = format("CREATE TABLE %s WITH (ROWKEYS = 'ORDERKEY,LINENUMBER', SALT_BUCKETS=10) AS SELECT * FROM %s", target, source);
-                break;
-            case "orders":
-                sql = format("CREATE TABLE %s WITH (SALT_BUCKETS=10) AS SELECT * FROM %s", target, source);
-                break;
-            case "part":
-                sql = format("CREATE TABLE %s AS SELECT * FROM %s", target, source);
-                break;
-            case "partsupp":
-                sql = format("CREATE TABLE %s WITH (ROWKEYS = 'PARTKEY,SUPPKEY') AS SELECT * FROM %s", target, source);
-                break;
-            case "supplier":
-                sql = format("CREATE TABLE %s AS SELECT * FROM %s", target, source);
-                break;
-            default:
-                sql = format("CREATE TABLE %s AS SELECT * FROM %s", target, source);
-                break;
+        String tableProperties = "";
+        if (LINE_ITEM.getTableName().equals(target)) {
+            tableProperties = "WITH (ROWKEYS = 'ORDERKEY,LINENUMBER', SALT_BUCKETS=10)";
         }
+        else if (ORDERS.getTableName().equals(target)) {
+            tableProperties = "WITH (SALT_BUCKETS=10)";
+        }
+        else if (PART_SUPPLIER.getTableName().equals(target)) {
+            tableProperties = "WITH (ROWKEYS = 'PARTKEY,SUPPKEY')";
+        }
+        @Language("SQL")
+        String sql = format("CREATE TABLE %s %s AS SELECT * FROM %s", target, tableProperties, source);
 
         LOG.debug("Running import for %s %s", target, sql);
         long rows = queryRunner.execute(session, sql).getUpdateCount().getAsLong();
         LOG.debug("%s rows loaded into %s", rows, target);
     }
 
-    public static Session createSession()
+    private static Session createSession()
     {
         return testSessionBuilder()
                 .setCatalog("phoenix")

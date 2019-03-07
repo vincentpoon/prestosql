@@ -16,9 +16,12 @@ package io.prestosql.plugin.phoenix;
 import com.google.inject.Binder;
 import com.google.inject.Scopes;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
+import io.prestosql.plugin.jdbc.JdbcClient;
+import io.prestosql.plugin.jdbc.JdbcPageSinkProvider;
+import io.prestosql.plugin.jdbc.JdbcRecordSetProvider;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ConnectorPageSinkProvider;
-import io.prestosql.spi.connector.ConnectorPageSourceProvider;
+import io.prestosql.spi.connector.ConnectorRecordSetProvider;
 import io.prestosql.spi.connector.ConnectorSplitManager;
 import io.prestosql.spi.type.TypeManager;
 import org.apache.phoenix.jdbc.PhoenixDriver;
@@ -26,33 +29,28 @@ import org.apache.phoenix.jdbc.PhoenixDriver;
 import java.sql.SQLException;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_ERROR;
-import static java.util.Objects.requireNonNull;
+import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_CONFIG_ERROR;
 
 public class PhoenixClientModule
         extends AbstractConfigurationAwareModule
 {
-    private final String connectorId;
     private final TypeManager typeManager;
 
-    public PhoenixClientModule(String connectorId, TypeManager typeManager)
+    public PhoenixClientModule(TypeManager typeManager)
     {
-        this.connectorId = requireNonNull(connectorId, "connector id is null");
         this.typeManager = typeManager;
     }
 
     @Override
     protected void setup(Binder binder)
     {
-        binder.bind(PhoenixConnectorId.class).toInstance(new PhoenixConnectorId(connectorId));
         binder.bind(ConnectorSplitManager.class).to(PhoenixSplitManager.class).in(Scopes.SINGLETON);
-        binder.bind(ConnectorPageSourceProvider.class).to(PhoenixPageSourceProvider.class).in(Scopes.SINGLETON);
-        binder.bind(ConnectorPageSinkProvider.class).to(PhoenixPageSinkProvider.class).in(Scopes.SINGLETON);
-
+        binder.bind(ConnectorRecordSetProvider.class).to(JdbcRecordSetProvider.class).in(Scopes.SINGLETON);
+        binder.bind(JdbcRecordSetProvider.class).in(Scopes.SINGLETON);
+        binder.bind(ConnectorPageSinkProvider.class).to(JdbcPageSinkProvider.class).in(Scopes.SINGLETON);
         binder.bind(PhoenixClient.class).in(Scopes.SINGLETON);
-        binder.bind(PhoenixMetadataFactory.class).in(Scopes.SINGLETON);
-
-        binder.bind(PhoenixSessionProperties.class).in(Scopes.SINGLETON);
+        binder.bind(JdbcClient.class).to(PhoenixClient.class).in(Scopes.SINGLETON);
+        binder.bind(PhoenixMetadata.class).in(Scopes.SINGLETON);
         binder.bind(PhoenixTableProperties.class).in(Scopes.SINGLETON);
         binder.bind(TypeManager.class).toInstance(typeManager);
 
@@ -66,7 +64,7 @@ public class PhoenixClientModule
             checkArgument(driver.acceptsURL(connectionUrl), "Invalid JDBC URL for Phoenix connector");
         }
         catch (SQLException e) {
-            throw new PrestoException(PHOENIX_ERROR, e);
+            throw new PrestoException(PHOENIX_CONFIG_ERROR, e);
         }
     }
 }

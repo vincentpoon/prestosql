@@ -2,7 +2,7 @@
 Phoenix Connector
 =================
 
-The Phoenix connector allows querying data stored in Apache Phoenix.
+The Phoenix connector allows querying data stored in HBase using Apache Phoenix.
 
 Compatibility
 -------------
@@ -15,40 +15,36 @@ Configuration
 To configure the Phoenix connector, create a catalog properties file
 ``etc/catalog/phoenix.properties`` with the following contents,
 replacing ``host1,host2,host3`` with a comma-separated list of the ZooKeeper
-nodes used for discovery of the hbase cluster:
+nodes used for discovery of the HBase cluster:
 
 .. code-block:: none
 
     connector.name=phoenix
-    connection-url=jdbc:phoenix:host1,host2,host3:2181:/hbase
-    connection-properties=phoenix.schema.isNamespaceMappingEnabled=true
-    allow-drop-table=true
+    phoenix.connection-url=jdbc:phoenix:host1,host2,host3:2181:/hbase
+    phoenix.hbase-site-path=/path/to/hbase-site.xml
 
-Note that isNamespaceMappingEnabled must be true to create schemas from Presto.
+The optional hbase-site.xml path is used to load custom Phoenix client connection properties.
 
 Configuration Properties
 ------------------------
 
 The following configuration properties are available:
 
-================================================== ====================== ========== ======================================================================
+================================================== ====================== ========== ===================================================================================
 Property Name                                      Default Value          Required   Description
-================================================== ====================== ========== ======================================================================
-``connection-url``                                 (none)                 Yes        ``jdbc:phoenix[:zk_quorum][:zk_port][:zk_hbase_path]``.
-                                                                                     The ``zk_quorum`` is a comma separated list of the ZooKeeper Servers.
-                                                                                     The ``zk_port`` is the ZooKeeper port. The ``zk_hbase_path`` is HBase
-                                                                                     root znode path, that is configurable using hbase-site.xml, and by
+================================================== ====================== ========== ===================================================================================
+``phoenix.connection-url``                         (none)                 Yes        ``jdbc:phoenix[:zk_quorum][:zk_port][:zk_hbase_path]``.
+                                                                                     The ``zk_quorum`` is a comma separated list of ZooKeeper servers.
+                                                                                     The ``zk_port`` is the ZooKeeper port. The ``zk_hbase_path`` is the HBase
+                                                                                     root znode path, that is configurable using hbase-site.xml.  By
                                                                                      default the location is “/hbase”
-``connection-properties``                          (none)                 No         Phoenix Additional connection properties,
-                                                                                     e.g ``phoenix.schema.isNamespaceMappingEnabled``
-``allow-drop-table``                               false                  No         Set to ``true`` to allow dropping Phoenix tables from Presto via
-                                                                                     :doc:`/sql/drop-table` (defaults to ``false``).
-================================================== ====================== ========== ======================================================================
+``phoenix.hbase-site-path``                        (none)                 No         Path to hbase-site.xml for custom connection properties
+================================================== ====================== ========== ===================================================================================
 
 Querying Phoenix Tables
 -------------------------
 
-The Phoenix connector provides a schema for every Phoenix schema.
+The default empty schema in Phoenix maps to a schema named ``default`` in Presto.
 You can see the available Phoenix schemas by running ``SHOW SCHEMAS``::
 
     SHOW SCHEMAS FROM phoenix;
@@ -76,31 +72,53 @@ Data types
 
 The data types mappings are as follows:
 
-==========================  ======
-Phoenix                     Presto
-==========================  ======
-BOOLEAN                     BOOLEAN
-BIGINT                      BIGINT
-INTEGER                     INTEGER
-SMALLINT                    SMALLINT
-TINYINT                     TINYINT
-DOUBLE                      DOUBLE
-REAL                        FLOAT
-VARBINARY                   VARBINARY
-DATE                        DATE
-TIME                        TIME
-TIME_WITH_TIME_ZONE         TIME
-TIMESTAMP                   TIMESTAMP
-TIMESTAMP_WITH_TIME_ZONE    TIMESTAMP
-ARRAY<?>                    ARRAY
-==========================  ======
+==========================   ============
+Phoenix                      Presto
+==========================   ============
+``BOOLEAN``                  ``BOOLEAN``
+``BIGINT``                   ``BIGINT``
+``INTEGER``                  ``INTEGER``
+``SMALLINT``                 ``SMALLINT``
+``TINYINT``                  ``TINYINT``
+``DOUBLE``                   ``DOUBLE``
+``FLOAT``                    ``REAL``
+``DECIMAL``                  ``DECIMAL``
+``BINARY``                   ``VARBINARY``
+``VARBINARY``                ``VARBINARY``
+``DATE``                     ``DATE``
+``TIME``                     ``TIME``
+``TIMESTAMP``                ``TIMESTAMP``
+``VARCHAR``                  ``VARCHAR``
+``CHAR``                     ``CHAR``
+==========================   ============
 
-Table Properties
-----------------
+|
 
-Table property usage example:
+============================   =============
+Presto                         Phoenix
+============================   =============
+``BOOLEAN``                    ``BOOLEAN``
+``BIGINT``                     ``BIGINT``
+``INTEGER``                    ``INTEGER``
+``SMALLINT``                   ``SMALLINT``
+``TINYINT``                    ``TINYINT``
+``DOUBLE``                     ``DOUBLE``
+``REAL``                       ``FLOAT``
+``DECIMAL``                    ``DECIMAL``
+``VARBINARY``                  ``VARBINARY``
+``DATE``                       ``DATE``
+``TIME``                       ``TIME``
+``TIME_WITH_TIME_ZONE``        ``TIME``
+``TIMESTAMP``                  ``TIMESTAMP``
+``TIMESTAMP_WITH_TIME_ZONE``   ``TIMESTAMP``
+``VARCHAR``                    ``VARCHAR``
+``CHAR``                       ``CHAR``
+============================   =============
 
-.. code-block:: sql
+Table Properties - Phoenix
+--------------------------
+
+Table property usage example::
 
     CREATE TABLE myschema.scientists (
       recordkey VARCHAR,
@@ -109,47 +127,50 @@ Table property usage example:
       age BIGINT
     )
     WITH (
-      rowkeys = 'recordkey,birthday row_timestamp',
+      rowkeys = 'recordkey,birthday',
       salt_buckets=10
     );
+
+The following are supported Phoenix table properties from `<https://phoenix.apache.org/language/index.html#options>`_
 
 =========================== ================ ==============================================================================================================
 Property Name               Default Value    Description
 =========================== ================ ==============================================================================================================
-``rowkeys``                 (ROWKEY column)  Comma-delimited list of columns to be the primary key in the Phoenix table.
-                                             If not specified, a 'ROWKEY' column is generated.
+``rowkeys``                 ``ROWKEY``       Comma-separated list of primary key columns.  See further description below
 
-``salt_buckets``            (none)           ``salt_buckets`` numeric property causes an extra byte to be transparently prepended to every row key
-                                             to ensure an evenly distributed read and write load across all region servers.
+``split_on``                (none)           List of keys to presplit the table on.
+                                             See `Split Point <https://phoenix.apache.org/language/index.html#split_point>`_.
 
-``split_on``                (none)           Per-split table Salting does automatic table splitting but in case you want to exactly control where
-                                             table split occurs with out adding extra byte or change row key order then you can pre-split a table.
+``salt_buckets``            (none)           Number of salt buckets for this table.
 
-``disable_wal``             false            ``disable_wal`` boolean option when true causes HBase not to write data to the write-ahead-log, thus
-                                             making updates faster at the expense of potentially losing data in the event of a region server failure.
+``disable_wal``             false            Whether to disable WAL writes in HBase for this table.
 
-``immutable_rows``          false            ``immutable_rows`` boolean option when true declares that your table has rows which are write-once,
-                                             append-only (i.e. the same row is never updated).
+``immutable_rows``          false            Declares whether this table has rows which are write-once, append-only.
 
-``default_column_family``   ``0``            ``default_column_family`` string option determines the column family used used when none is specified.
-                                             The value is case sensitive.
-
-``bloomfilter``             ``ROW``          ``bloomfilter`` are enabled on a Column Family. Valid values are ``NONE``, ``ROW``(default), or ``ROWCOL``.
-
-``versions``                ``1``            A ``{row, column, version}`` tuple exactly specifies a cell in HBase. It's possible to have an unbounded
-                                             number of cells where the row and column are the same but the cell address differs only in its version dimension.
-
-``min_versions``            ``0``            The minimum number of row versions to keep is configured per column family
-
-``compression``             ``NONE``         HBase supports several different compression algorithms which can be enabled on a ColumnFamily.
-                                             Valid values are ``NONE``(default), ``SNAPPY``, ``LZO``, ``LZ4``, or ``GZ``.
-
-``ttl``                     ``FOREVER``      ColumnFamilies can set a TTL length in seconds, and HBase will automatically delete rows once the expiration
-                                             time is reached.
+``default_column_family``   ``0``            Default column family name to use for this table.
 =========================== ================ ==============================================================================================================
 
-Phoenix Connector Limitations
------------------------------
+``rowkeys``
+^^^^^^^^^^^
+This is a comma-separated list of columns to be used as the table's primary key. If not specified, a ``BIGINT`` primary key column named ``ROWKEY`` is generated
+, as well as a sequence with the same name as the table suffixed with '_seq' (i.e. "<schema>.<table>_seq")
+, which is used to automatically populate the ``ROWKEY`` for each row during insertion.
 
-* Only one dimensional arrays are currently supported.
-* Tables in the Phoenix default schema without namespace mapping cannot be queried
+Table Properties - HBase
+------------------------
+The following are the supported HBase table properties that are passed through by Phoenix during table creation.
+Use them in the the same way as above: in the ``WITH`` clause of the ``CREATE TABLE`` statement.
+
+=========================== ================ ==============================================================================================================
+Property Name               Default Value    Description
+=========================== ================ ==============================================================================================================
+``versions``                ``1``            The maximum number of versions of each cell to keep.
+
+``min_versions``            ``0``            The minimum number of cell versions to keep.
+
+``compression``             ``NONE``         Compression algorithm to use.  Valid values are ``NONE`` (default), ``SNAPPY``, ``LZO``, ``LZ4``, or ``GZ``.
+
+``ttl``                     ``FOREVER``      Time To Live for each cell.
+``bloomfilter``             ``ROW``          Bloomfilter to use. Valid values are ``NONE``, ``ROW`` (default), or ``ROWCOL``.
+=========================== ================ ==============================================================================================================
+

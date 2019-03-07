@@ -24,15 +24,14 @@ import io.prestosql.spi.connector.ConnectorContext;
 import io.prestosql.spi.connector.ConnectorFactory;
 import io.prestosql.spi.connector.ConnectorHandleResolver;
 import io.prestosql.spi.connector.ConnectorPageSinkProvider;
-import io.prestosql.spi.connector.ConnectorPageSourceProvider;
+import io.prestosql.spi.connector.ConnectorRecordSetProvider;
 import io.prestosql.spi.connector.ConnectorSplitManager;
 import io.prestosql.spi.connector.classloader.ClassLoaderSafeConnectorPageSinkProvider;
-import io.prestosql.spi.connector.classloader.ClassLoaderSafeConnectorPageSourceProvider;
 import io.prestosql.spi.connector.classloader.ClassLoaderSafeConnectorSplitManager;
 
 import java.util.Map;
 
-import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_ERROR;
+import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_INTERNAL_ERROR;
 import static java.util.Objects.requireNonNull;
 
 public class PhoenixConnectorFactory
@@ -58,12 +57,12 @@ public class PhoenixConnectorFactory
     }
 
     @Override
-    public Connector create(String connectorId, Map<String, String> requiredConfig, ConnectorContext context)
+    public Connector create(String catalogName, Map<String, String> requiredConfig, ConnectorContext context)
     {
         requireNonNull(requiredConfig, "requiredConfig is null");
 
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
-            Bootstrap app = new Bootstrap(new JsonModule(), new PhoenixClientModule(connectorId, context.getTypeManager()));
+            Bootstrap app = new Bootstrap(new JsonModule(), new PhoenixClientModule(context.getTypeManager()));
 
             Injector injector = app
                     .strictConfig()
@@ -72,24 +71,22 @@ public class PhoenixConnectorFactory
                     .initialize();
 
             LifeCycleManager lifeCycleManager = injector.getInstance(LifeCycleManager.class);
-            PhoenixMetadataFactory metadataFactory = injector.getInstance(PhoenixMetadataFactory.class);
+            PhoenixMetadata metadata = injector.getInstance(PhoenixMetadata.class);
             ConnectorSplitManager splitManager = injector.getInstance(ConnectorSplitManager.class);
-            ConnectorPageSourceProvider pageSourceProvider = injector.getInstance(ConnectorPageSourceProvider.class);
+            ConnectorRecordSetProvider recordSetProvider = injector.getInstance(ConnectorRecordSetProvider.class);
             ConnectorPageSinkProvider pageSinkProvider = injector.getInstance(ConnectorPageSinkProvider.class);
-            PhoenixSessionProperties sessionProperties = injector.getInstance(PhoenixSessionProperties.class);
             PhoenixTableProperties tableProperties = injector.getInstance(PhoenixTableProperties.class);
 
             return new PhoenixConnector(
                     lifeCycleManager,
-                    metadataFactory,
+                    metadata,
                     new ClassLoaderSafeConnectorSplitManager(splitManager, classLoader),
-                    new ClassLoaderSafeConnectorPageSourceProvider(pageSourceProvider, classLoader),
+                    recordSetProvider,
                     new ClassLoaderSafeConnectorPageSinkProvider(pageSinkProvider, classLoader),
-                    sessionProperties,
                     tableProperties);
         }
         catch (Exception e) {
-            throw new PrestoException(PHOENIX_ERROR, e);
+            throw new PrestoException(PHOENIX_INTERNAL_ERROR, e);
         }
     }
 }

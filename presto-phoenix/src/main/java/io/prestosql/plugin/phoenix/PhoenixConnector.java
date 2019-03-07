@@ -15,22 +15,18 @@ package io.prestosql.plugin.phoenix;
 
 import io.airlift.bootstrap.LifeCycleManager;
 import io.airlift.log.Logger;
+import io.prestosql.plugin.jdbc.JdbcTransactionHandle;
 import io.prestosql.spi.connector.Connector;
 import io.prestosql.spi.connector.ConnectorMetadata;
 import io.prestosql.spi.connector.ConnectorPageSinkProvider;
-import io.prestosql.spi.connector.ConnectorPageSourceProvider;
+import io.prestosql.spi.connector.ConnectorRecordSetProvider;
 import io.prestosql.spi.connector.ConnectorSplitManager;
 import io.prestosql.spi.connector.ConnectorTransactionHandle;
 import io.prestosql.spi.session.PropertyMetadata;
 import io.prestosql.spi.transaction.IsolationLevel;
 
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static io.prestosql.spi.transaction.IsolationLevel.READ_COMMITTED;
-import static io.prestosql.spi.transaction.IsolationLevel.checkConnectorSupports;
 import static java.util.Objects.requireNonNull;
 
 public class PhoenixConnector
@@ -39,68 +35,38 @@ public class PhoenixConnector
     private static final Logger log = Logger.get(PhoenixConnector.class);
 
     private final LifeCycleManager lifeCycleManager;
-    private final PhoenixMetadataFactory metadataFactory;
+    private final PhoenixMetadata metadata;
     private final ConnectorSplitManager splitManager;
-    private final ConnectorPageSourceProvider pageSourceProvider;
     private final ConnectorPageSinkProvider pageSinkProvider;
-    private final PhoenixSessionProperties sessionProperties;
     private final PhoenixTableProperties tableProperties;
-
-    private final ConcurrentMap<ConnectorTransactionHandle, PhoenixMetadata> transactions = new ConcurrentHashMap<>();
+    private final ConnectorRecordSetProvider recordSetProvider;
 
     public PhoenixConnector(
             LifeCycleManager lifeCycleManager,
-            PhoenixMetadataFactory metadataFactory,
+            PhoenixMetadata metadata,
             ConnectorSplitManager splitManager,
-            ConnectorPageSourceProvider pageSourceProvider,
+            ConnectorRecordSetProvider recordSetProvider,
             ConnectorPageSinkProvider pageSinkProvider,
-            PhoenixSessionProperties sessionProperties,
             PhoenixTableProperties tableProperties)
     {
         this.lifeCycleManager = requireNonNull(lifeCycleManager, "lifeCycleManager is null");
-        this.metadataFactory = requireNonNull(metadataFactory, "metadataFactory is null");
+        this.metadata = requireNonNull(metadata, "metadata is null");
         this.splitManager = requireNonNull(splitManager, "splitManager is null");
-        this.pageSourceProvider = requireNonNull(pageSourceProvider, "pageSourceProvider is null");
+        this.recordSetProvider = requireNonNull(recordSetProvider, "recordSetProvider is null");
         this.pageSinkProvider = requireNonNull(pageSinkProvider, "pageSinkProvider is null");
-        this.sessionProperties = requireNonNull(sessionProperties, "sessionProperties is null");
         this.tableProperties = requireNonNull(tableProperties, "tableProperties is null");
-    }
-
-    @Override
-    public boolean isSingleStatementWritesOnly()
-    {
-        return true;
     }
 
     @Override
     public ConnectorTransactionHandle beginTransaction(IsolationLevel isolationLevel, boolean readOnly)
     {
-        checkConnectorSupports(READ_COMMITTED, isolationLevel);
-        PhoenixTransactionHandle transaction = new PhoenixTransactionHandle();
-        transactions.put(transaction, metadataFactory.create());
-        return transaction;
+        return new JdbcTransactionHandle();
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorTransactionHandle transaction)
     {
-        PhoenixMetadata metadata = transactions.get(transaction);
-        checkArgument(metadata != null, "no such transaction: %s", transaction);
         return metadata;
-    }
-
-    @Override
-    public void commit(ConnectorTransactionHandle transaction)
-    {
-        checkArgument(transactions.remove(transaction) != null, "no such transaction: %s", transaction);
-    }
-
-    @Override
-    public void rollback(ConnectorTransactionHandle transaction)
-    {
-        PhoenixMetadata metadata = transactions.remove(transaction);
-        checkArgument(metadata != null, "no such transaction: %s", transaction);
-        metadata.rollback();
     }
 
     @Override
@@ -110,21 +76,15 @@ public class PhoenixConnector
     }
 
     @Override
-    public ConnectorPageSourceProvider getPageSourceProvider()
+    public ConnectorRecordSetProvider getRecordSetProvider()
     {
-        return pageSourceProvider;
+        return recordSetProvider;
     }
 
     @Override
     public ConnectorPageSinkProvider getPageSinkProvider()
     {
         return pageSinkProvider;
-    }
-
-    @Override
-    public List<PropertyMetadata<?>> getSessionProperties()
-    {
-        return sessionProperties.getSessionProperties();
     }
 
     @Override

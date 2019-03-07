@@ -58,64 +58,65 @@ public final class PhoenixTableProperties
     public PhoenixTableProperties(TypeManager typeManager)
     {
         tableProperties = ImmutableList.of(
-                stringProperty(ROWKEYS,
-                        "Comma-delimited list of columns to be the primary key in the Phoenix table.",
+                stringProperty(
+                        ROWKEYS,
+                        "Comma-separated list of columns to be the primary key.",
                         null,
                         false),
                 integerProperty(
                         SALT_BUCKETS,
-                        "numeric property causes an extra byte to be transparently prepended to every row key to ensure an evenly distributed read and write load across all region servers.",
+                        "Number of salt buckets.  This causes an extra byte to be transparently prepended to every row key to ensure an evenly distributed read and write load across all region servers.",
                         null,
                         false),
                 stringProperty(
                         SPLIT_ON,
-                        "Per-split table Salting does automatic table splitting but in case you want to exactly control where table split occurs with out adding extra byte or change row key order then you can pre-split a table.",
+                        "Comma-separated list of keys to split on during table creation.",
                         null,
                         false),
                 booleanProperty(
                         DISABLE_WAL,
-                        "boolean option when true causes HBase not to write data to the write-ahead-log, thus making updates faster at the expense of potentially losing data in the event of a region server failure.",
+                        "If true, causes HBase not to write data to the write-ahead-log, thus making updates faster at the expense of potentially losing data in the event of a region server failure.",
                         null,
                         false),
                 booleanProperty(
                         IMMUTABLE_ROWS,
-                        "boolean option when true declares that your table has rows which are write-once, append-only.",
+                        "Set to true if the table has rows which are write-once, append-only.",
                         null,
                         false),
                 stringProperty(
                         DEFAULT_COLUMN_FAMILY,
-                        "string option determines the column family used used when none is specified.",
+                        "The column family name to use by default.",
                         null,
                         false),
                 stringProperty(
                         BLOOMFILTER,
-                        "NONE, ROW or ROWCOL to enable blooms per Column Family.",
+                        "NONE, ROW or ROWCOL to enable blooms per column family.",
                         null,
                         false),
                 integerProperty(
                         VERSIONS,
-                        "The maximum number of row versions to store is configured per column family via HColumnDescriptor.",
+                        "The maximum number of row versions to store, configured per column family via HColumnDescriptor.",
                         null,
                         false),
                 integerProperty(
                         MIN_VERSIONS,
-                        "Like maximum number of row versions, the minimum number of row versions to keep is configured per column family via HColumnDescriptor.",
+                        "The minimum number of row versions to store, configured per column family via HColumnDescriptor.",
                         null,
                         false),
                 stringProperty(
                         COMPRESSION,
-                        "Compression is compression of HBase blocks using SNAPPY, GZIP, LZ, and others.",
+                        "Compression algorithm to use for HBase blocks. Options are: SNAPPY, GZIP, LZ, and others.",
                         null,
                         false),
                 integerProperty(
                         TTL,
-                        "ColumnFamilies can set a TTL length in seconds, and HBase will automatically delete rows once the expiration time is reached.",
+                        "Number of seconds for cell TTL.  HBase will automatically delete rows once the expiration time is reached.",
                         null,
                         false));
         columnProperties = ImmutableList.of(
                 booleanProperty(
                         PRIMARY_KEY,
-                        "If column belongs to primary key",
+                        "True if the column is part of the primary key",
                         false,
                         false));
     }
@@ -259,7 +260,9 @@ public final class PhoenixTableProperties
         if (rowkeysTableProp.isPresent()) {
             return rowkeysTableProp.get().stream().anyMatch(col.getName()::equalsIgnoreCase);
         }
-        Boolean isPk = (Boolean) col.getProperties().get(PRIMARY_KEY);
-        return isPk != null && isPk;
+        else {
+            Boolean isPk = (Boolean) col.getProperties().get(PRIMARY_KEY);
+            return isPk != null && isPk;
+        }
     }
 }

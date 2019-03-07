@@ -13,20 +13,19 @@
  */
 package io.prestosql.plugin.phoenix;
 
-import com.google.common.collect.ImmutableMap;
-import io.airlift.tpch.TpchTable;
 import io.prestosql.tests.AbstractTestDistributedQueries;
-import org.intellij.lang.annotations.Language;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
+
+import static io.prestosql.plugin.phoenix.PhoenixQueryRunner.createPhoenixQueryRunner;
 
 @Test
 public class TestPhoenixDistributedQueries
         extends AbstractTestDistributedQueries
 {
     public TestPhoenixDistributedQueries()
-            throws Exception
     {
-        super(() -> PhoenixQueryRunner.createPhoenixQueryRunner(ImmutableMap.of(), TpchTable.getTables()));
+        super(() -> createPhoenixQueryRunner(TestingPhoenixServer.getInstance()));
     }
 
     @Override
@@ -47,29 +46,18 @@ public class TestPhoenixDistributedQueries
         // Phoenix does not support renaming columns
     }
 
-    @Test
-    public void testDeleteCompoundPk()
+    @Override
+    public void testDelete()
     {
-        assertUpdate("CREATE TABLE test_delete_compound_pk  (pk1 bigint, pk2 varchar, val1 varchar) WITH (ROWKEYS='pk1,pk2')");
-
-        assertUpdate("INSERT INTO test_delete_compound_pk VALUES (1, 'pkVal1', 'val1')", 1);
-        assertUpdate("INSERT INTO test_delete_compound_pk VALUES (2, 'pkVal2', 'val2')", 1);
-        assertUpdate("INSERT INTO test_delete_compound_pk VALUES (3, 'pkVal3', 'val3')", 1);
-
-        assertUpdate("DELETE FROM test_delete_compound_pk where val1 = 'val2'", 1);
-        assertQuery("SELECT count(*) FROM test_delete_compound_pk where val1 = 'val2'", "SELECT 0");
-
-        assertUpdate("DELETE FROM test_delete_compound_pk where pk1 = 3 AND pk2 = 'pkVal3'", 1);
-        assertQuery("SELECT pk1 from test_delete_compound_pk", "SELECT 1");
+        // delete not currently supported
     }
 
-    @Test
+    @Override
     public void testInsert()
     {
-        @Language("SQL")
         String query = "SELECT orderdate, orderkey, totalprice FROM orders";
 
-        assertUpdate("CREATE TABLE test_insert WITH (ROWKEYS='orderkey')AS " + query + " WITH NO DATA", 0);
+        assertUpdate("CREATE TABLE test_insert WITH (ROWKEYS='orderkey') AS " + query + " WITH NO DATA", 0);
         assertQuery("SELECT count(*) FROM test_insert", "SELECT 0");
 
         assertUpdate("INSERT INTO test_insert " + query, "SELECT count(*) FROM orders");
@@ -102,34 +90,11 @@ public class TestPhoenixDistributedQueries
                 "SELECT 2 * count(*) FROM orders");
 
         assertUpdate("DROP TABLE test_insert");
-
-        assertUpdate("CREATE TABLE test_insert (pk BIGINT WITH (primary_key=true), a ARRAY<DOUBLE>,  b ARRAY<BIGINT>)");
-
-        assertUpdate("INSERT INTO test_insert (pk, a) VALUES (1, ARRAY[null])", 1);
-        assertUpdate("INSERT INTO test_insert (pk, a) VALUES (2, ARRAY[1234])", 1);
-        // An array of numeric primitive types returns 0 when the value is null.
-        assertQuery("SELECT a[1] FROM test_insert", "VALUES (0), (1234)");
-
-        assertQueryFails("INSERT INTO test_insert (pk, b) VALUES (3, ARRAY[1.23E1])", "Insert query has mismatched column types: .*");
-
-        assertUpdate("DROP TABLE test_insert");
     }
 
-    @Test
-    public void testInsertDuplicateRows()
+    @AfterClass(alwaysRun = true)
+    public void destroy()
     {
-        // Insert a row without specifying the comment column. That column will be null.
-        // https://prestodb.io/docs/current/sql/insert.html
-        try {
-            assertUpdate("CREATE TABLE test_insert_duplicate WITH (ROWKEYS = 'a') AS SELECT 1 a, 2 b, '3' c", 1);
-            assertQuery("SELECT a, b, c FROM test_insert_duplicate", "SELECT 1, 2, '3'");
-            assertUpdate("INSERT INTO test_insert_duplicate (a, c) VALUES (1, '4')", 1);
-            assertQuery("SELECT a, b, c FROM test_insert_duplicate", "SELECT 1, null, '4'");
-            assertUpdate("INSERT INTO test_insert_duplicate (a, b) VALUES (1, 3)", 1);
-            assertQuery("SELECT a, b, c FROM test_insert_duplicate", "SELECT 1, 3, null");
-        }
-        finally {
-            assertUpdate("DROP TABLE test_insert_duplicate");
-        }
+        TestingPhoenixServer.shutDown();
     }
 }

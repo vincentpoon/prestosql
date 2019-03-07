@@ -15,6 +15,10 @@ package io.prestosql.plugin.phoenix;
 
 import com.google.common.collect.ImmutableList;
 import io.airlift.log.Logger;
+import io.prestosql.plugin.jdbc.JdbcColumnHandle;
+import io.prestosql.plugin.jdbc.JdbcIdentity;
+import io.prestosql.plugin.jdbc.JdbcTableHandle;
+import io.prestosql.plugin.jdbc.QueryBuilder;
 import io.prestosql.spi.HostAddress;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ConnectorSession;
@@ -23,44 +27,32 @@ import io.prestosql.spi.connector.ConnectorSplitSource;
 import io.prestosql.spi.connector.ConnectorTableLayoutHandle;
 import io.prestosql.spi.connector.ConnectorTransactionHandle;
 import io.prestosql.spi.connector.FixedSplitSource;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.mapreduce.InputSplit;
-import org.apache.hadoop.mapreduce.Job;
-import org.apache.hadoop.mapreduce.JobContext;
 import org.apache.phoenix.compile.QueryPlan;
-import org.apache.phoenix.coprocessor.BaseScannerRegionObserver;
-import org.apache.phoenix.iterate.MapReduceParallelScanGrouper;
 import org.apache.phoenix.jdbc.PhoenixConnection;
-import org.apache.phoenix.jdbc.PhoenixStatement;
+import org.apache.phoenix.jdbc.PhoenixPreparedStatement;
 import org.apache.phoenix.mapreduce.PhoenixInputSplit;
-import org.apache.phoenix.mapreduce.util.ConnectionUtil;
-import org.apache.phoenix.mapreduce.util.PhoenixConfigurationUtil;
-import org.apache.phoenix.query.HBaseFactoryProvider;
 import org.apache.phoenix.query.KeyRange;
-import org.apache.phoenix.shaded.com.google.common.base.Preconditions;
-import org.apache.phoenix.shaded.com.google.common.collect.Lists;
-import org.apache.phoenix.util.PhoenixRuntime;
+import org.apache.phoenix.util.SchemaUtil;
 
 import javax.inject.Inject;
 
 import java.io.IOException;
-import java.sql.Connection;
 import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.Collections;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
-import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_ERROR;
+import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_SPLIT_ERROR;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.toList;
+import static org.apache.phoenix.coprocessor.BaseScannerRegionObserver.EXPECTED_UPPER_REGION_KEY;
 
 public class PhoenixSplitManager
         implements ConnectorSplitManager
@@ -68,185 +60,99 @@ public class PhoenixSplitManager
     private static final Logger log = Logger.get(PhoenixSplitManager.class);
 
     private final PhoenixClient phoenixClient;
-    private PhoenixMetadata phoenixMetadata;
-    private final Map<String, HostAddress> hostCache = new HashMap<>();
 
     @Inject
-    public PhoenixSplitManager(PhoenixClient phoenixClient, PhoenixMetadataFactory phoenixMetadataFactory)
+    public PhoenixSplitManager(PhoenixClient phoenixClient)
     {
         this.phoenixClient = requireNonNull(phoenixClient, "client is null");
-        this.phoenixMetadata = phoenixMetadataFactory.create();
     }
 
     @Override
     public ConnectorSplitSource getSplits(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorTableLayoutHandle layout, SplitSchedulingStrategy splitSchedulingStrategy)
     {
         PhoenixTableLayoutHandle layoutHandle = (PhoenixTableLayoutHandle) layout;
-        PhoenixTableHandle handle = layoutHandle.getTable();
-        try (PhoenixConnection connection = phoenixClient.getConnection()) {
-            String inputQuery = phoenixClient.buildSql(
+        JdbcTableHandle handle = layoutHandle.getTable();
+        try (PhoenixConnection connection = phoenixClient.getConnection(JdbcIdentity.from(session))) {
+            List<JdbcColumnHandle> columns = layoutHandle.getDesiredColumns()
+                    .map(columnSet -> columnSet.stream().map(JdbcColumnHandle.class::cast).collect(toList()))
+                    .orElseGet(() -> phoenixClient.getColumns(session, handle));
+            PhoenixPreparedStatement inputQuery = (PhoenixPreparedStatement) new QueryBuilder(SchemaUtil.ESCAPE_CHARACTER).buildSql(
+                    phoenixClient,
+                    session,
                     connection,
                     handle.getCatalogName(),
                     handle.getSchemaName(),
                     handle.getTableName(),
-                    layoutHandle.getDesiredColumns(),
+                    columns,
                     layoutHandle.getTupleDomain(),
-                    phoenixMetadata.getColumns(handle, false));
+                    Optional.empty());
 
-            return new FixedSplitSource(getHadoopInputSplits(inputQuery).stream().map(split -> (PhoenixInputSplit) split).map(split -> {
-                List<HostAddress> addresses = getSplitAddresses(split);
-
-                return new PhoenixSplit(
-                        phoenixClient.getConnectorId(),
-                        handle.getCatalogName(),
-                        handle.getSchemaName(),
-                        handle.getTableName(),
-                        layoutHandle.getTupleDomain(),
-                        addresses,
-                        new WrappedPhoenixInputSplit(split));
-            }).collect(Collectors.toList()));
+            return new FixedSplitSource(getSplits(inputQuery).stream().map(PhoenixInputSplit.class::cast).map(split ->
+                    new PhoenixSplit(
+                            phoenixClient.getCatalogName(),
+                            handle.getSchemaName(),
+                            handle.getTableName(),
+                            layoutHandle.getTupleDomain(),
+                            getSplitAddresses(split),
+                            new WrappedPhoenixInputSplit(split))
+            ).collect(Collectors.toList()));
         }
-        catch (IOException | InterruptedException | SQLException e) {
-            throw new PrestoException(PHOENIX_ERROR, e);
+        catch (IOException | SQLException e) {
+            throw new PrestoException(PHOENIX_SPLIT_ERROR, "Couldn't get Phoenix splits", e);
         }
     }
 
     private List<HostAddress> getSplitAddresses(PhoenixInputSplit split)
     {
-        List<HostAddress> addresses;
         try {
-            String hostName = split.getLocations()[0];
-            HostAddress address = hostCache.get(hostName);
-            if (address == null) {
-                address = HostAddress.fromString(hostName);
-                hostCache.put(hostName, address);
-            }
-            addresses = ImmutableList.of(address);
+            return ImmutableList.of(HostAddress.fromString(split.getLocations()[0]));
         }
-        catch (Exception e) {
-            log.warn("Failed to get split host addresses, will proceed without locality");
-            addresses = ImmutableList.of();
+        catch (IOException | InterruptedException e) {
+            // We shouldn't really ever get here since getLocations() just returns a field value
+            // The location was already fetched as part of generateSplits()
+            log.warn("Failed to get host addresses for split: " + split, e);
+            return ImmutableList.of();
         }
-        return addresses;
     }
 
-    // use Phoenix MR framework to get splits
-    private List<InputSplit> getHadoopInputSplits(String inputQuery)
-            throws SQLException, IOException, InterruptedException
+    private List<InputSplit> getSplits(PhoenixPreparedStatement inputQuery)
+            throws IOException
     {
-        Configuration conf = new Configuration();
-        phoenixClient.setJobQueryConfig(inputQuery, conf);
-        Job job = Job.getInstance(conf);
-        return getSplits(job);
-    }
-
-    public List<InputSplit> getSplits(JobContext context)
-            throws IOException, InterruptedException
-    {
-        final Configuration configuration = context.getConfiguration();
-        final QueryPlan queryPlan = getQueryPlan(context, configuration);
-        final List<KeyRange> allSplits = queryPlan.getSplits();
-        return generateSplits(queryPlan, allSplits, configuration);
+        QueryPlan queryPlan = phoenixClient.getQueryPlan(inputQuery);
+        List<KeyRange> allSplits = queryPlan.getSplits();
+        return generateSplits(queryPlan, allSplits);
     }
 
     // mostly copied from PhoenixInputFormat, but without the region size calculations
-    private List<InputSplit> generateSplits(final QueryPlan qplan, final List<KeyRange> splits, Configuration config)
+    private List<InputSplit> generateSplits(QueryPlan queryPlan, List<KeyRange> splits)
             throws IOException
     {
-        Preconditions.checkNotNull(qplan);
-        Preconditions.checkNotNull(splits);
+        requireNonNull(queryPlan, "queryPlan is null");
+        requireNonNull(splits, "splits is null");
 
-        try (org.apache.hadoop.hbase.client.Connection connection =
-                HBaseFactoryProvider.getHConnectionFactory().createConnection(config)) {
-            RegionLocator regionLocator = connection.getRegionLocator(TableName.valueOf(qplan.getTableRef().getTable().getPhysicalName().toString()));
+        try (org.apache.hadoop.hbase.client.Connection connection = phoenixClient.getHConnection()) {
+            RegionLocator regionLocator = connection.getRegionLocator(TableName.valueOf(queryPlan.getTableRef().getTable().getPhysicalName().toString()));
             long regionSize = -1;
-            final List<InputSplit> psplits = Lists.newArrayListWithExpectedSize(splits.size());
-            for (List<Scan> scans : qplan.getScans()) {
-                // Get the region location
+            List<InputSplit> inputSplits = new ArrayList<>(splits.size());
+            for (List<Scan> scans : queryPlan.getScans()) {
                 HRegionLocation location = regionLocator.getRegionLocation(scans.get(0).getStartRow(), false);
                 String regionLocation = location.getHostname();
 
-                // Generate splits based off statistics, or just region splits?
-                boolean splitByStats = PhoenixConfigurationUtil.getSplitByStats(config);
-
-                if (splitByStats) {
-                    for (Scan aScan : scans) {
-                        if (log.isDebugEnabled()) {
-                            log.debug("Split for  scan : " + aScan + "with scanAttribute : " +
-                                    aScan.getAttributesMap() + " [scanCache, cacheBlock, scanBatch] : [" +
-                                    aScan.getCaching() + ", " + aScan.getCacheBlocks() + ", " +
-                                    aScan.getBatch() + "] and  regionLocation : " + regionLocation);
-                        }
-                        psplits.add(new PhoenixInputSplit(Collections.singletonList(aScan), regionSize, regionLocation));
+                if (log.isDebugEnabled()) {
+                    log.debug(
+                            "Scan count[%d] : %s ~ %s",
+                            scans.size(),
+                            Bytes.toStringBinary(scans.get(0).getStartRow()),
+                            Bytes.toStringBinary(scans.get(scans.size() - 1).getStopRow()));
+                    log.debug("First scan : %swith scanAttribute : %s [scanCache, cacheBlock, scanBatch] : [%d, %s, %d] and  regionLocation : %s",
+                            scans.get(0), scans.get(0).getAttributesMap(), scans.get(0).getCaching(), scans.get(0).getCacheBlocks(), scans.get(0).getBatch(), regionLocation);
+                    for (int i = 0, limit = scans.size(); i < limit; i++) {
+                        log.debug("EXPECTED_UPPER_REGION_KEY[%d] : %s", i, Bytes.toStringBinary(scans.get(i).getAttribute(EXPECTED_UPPER_REGION_KEY)));
                     }
                 }
-                else {
-                    if (log.isDebugEnabled()) {
-                        log.debug("Scan count[" + scans.size() + "] : " + Bytes.toStringBinary(
-                                scans.get(0).getStartRow()) + " ~ " + Bytes.toStringBinary(
-                                scans.get(scans.size() - 1).getStopRow()));
-                        log.debug("First scan : " + scans.get(0) + "with scanAttribute : " +
-                                scans.get(0).getAttributesMap() + " [scanCache, cacheBlock, scanBatch] : " +
-                                "[" + scans.get(0).getCaching() + ", " + scans.get(0).getCacheBlocks() +
-                                ", " + scans.get(0).getBatch() + "] and  regionLocation : " + regionLocation);
-
-                        for (int i = 0, limit = scans.size(); i < limit; i++) {
-                            log.debug("EXPECTED_UPPER_REGION_KEY[" + i + "] : " +
-                                    Bytes.toStringBinary(scans.get(i).getAttribute(BaseScannerRegionObserver.EXPECTED_UPPER_REGION_KEY)));
-                        }
-                    }
-                    psplits.add(new PhoenixInputSplit(scans, regionSize, regionLocation));
-                }
+                inputSplits.add(new PhoenixInputSplit(scans, regionSize, regionLocation));
             }
-            return psplits;
-        }
-    }
-
-    private QueryPlan getQueryPlan(final JobContext context, final Configuration configuration)
-    {
-        Preconditions.checkNotNull(context);
-        try {
-            final String txnScnValue = configuration.get(PhoenixConfigurationUtil.TX_SCN_VALUE);
-            final String currentScnValue = configuration.get(PhoenixConfigurationUtil.CURRENT_SCN_VALUE);
-            final String tenantId = configuration.get(PhoenixConfigurationUtil.MAPREDUCE_TENANT_ID);
-            final Properties overridingProps = new Properties();
-            if (txnScnValue == null && currentScnValue != null) {
-                overridingProps.put(PhoenixRuntime.CURRENT_SCN_ATTRIB, currentScnValue);
-            }
-            if (tenantId != null && configuration.get(PhoenixRuntime.TENANT_ID_ATTRIB) == null) {
-                overridingProps.put(PhoenixRuntime.TENANT_ID_ATTRIB, tenantId);
-            }
-            try (final Connection connection = ConnectionUtil.getInputConnection(configuration, overridingProps);
-                    final Statement statement = connection.createStatement()) {
-                String selectStatement = PhoenixConfigurationUtil.getSelectStatement(configuration);
-                Preconditions.checkNotNull(selectStatement);
-
-                final PhoenixStatement pstmt = statement.unwrap(PhoenixStatement.class);
-                // Optimize the query plan so that we potentially use secondary indexes
-                final QueryPlan queryPlan = pstmt.optimizeQuery(selectStatement);
-                final Scan scan = queryPlan.getContext().getScan();
-
-                // since we can't set a scn on connections with txn set TX_SCN attribute so that the max time range is set by BaseScannerRegionObserver
-                if (txnScnValue != null) {
-                    scan.setAttribute(BaseScannerRegionObserver.TX_SCN, Bytes.toBytes(Long.valueOf(txnScnValue)));
-                }
-
-                // setting the snapshot configuration
-                String snapshotName = configuration.get(PhoenixConfigurationUtil.SNAPSHOT_NAME_KEY);
-                if (snapshotName != null) {
-                    PhoenixConfigurationUtil.setSnapshotNameKey(
-                            queryPlan.getContext().getConnection().getQueryServices().getConfiguration(),
-                            snapshotName);
-                }
-
-                // Initialize the query plan so it sets up the parallel scans
-                queryPlan.iterator(MapReduceParallelScanGrouper.getInstance());
-                return queryPlan;
-            }
-        }
-        catch (Exception e) {
-            log.error(String.format("Failed to get the query plan with error [%s]", e.getMessage()));
-            throw new PrestoException(PhoenixErrorCode.PHOENIX_ERROR, e);
+            return inputSplits;
         }
     }
 }

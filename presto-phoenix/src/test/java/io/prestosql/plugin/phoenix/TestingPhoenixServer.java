@@ -19,12 +19,14 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
+import org.apache.hadoop.hbase.zookeeper.MiniZooKeeperCluster;
 import org.apache.phoenix.shaded.org.apache.zookeeper.server.ZooKeeperServer;
 
-import java.io.Closeable;
+import javax.annotation.concurrent.GuardedBy;
+
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 
 import static io.prestosql.spi.StandardErrorCode.SERVER_SHUTTING_DOWN;
@@ -34,15 +36,44 @@ import static org.apache.hadoop.hbase.HConstants.MASTER_INFO_PORT;
 import static org.apache.hadoop.hbase.HConstants.REGIONSERVER_INFO_PORT;
 
 public final class TestingPhoenixServer
-        implements Closeable
 {
     private static final Logger LOG = Logger.get(TestingPhoenixServer.class);
+    private static final Object INSTANCE_LOCK = new Object();
+
+    @GuardedBy("INSTANCE_LOCK")
+    private static int referenceCount;
+    @GuardedBy("INSTANCE_LOCK")
+    private static TestingPhoenixServer instance;
+
+    public static TestingPhoenixServer getInstance()
+    {
+        synchronized (INSTANCE_LOCK) {
+            if (referenceCount == 0) {
+                instance = new TestingPhoenixServer();
+            }
+            referenceCount++;
+            return instance;
+        }
+    }
+
+    public static void shutDown()
+    {
+        synchronized (INSTANCE_LOCK) {
+            referenceCount--;
+            if (referenceCount == 0) {
+                instance.shutdown();
+                instance = null;
+            }
+        }
+    }
+
     private HBaseTestingUtility hbaseTestingUtility;
-    private int port;
-
+    private final int port;
     private final Configuration conf = HBaseConfiguration.create();
+    private final AtomicBoolean tpchLoaded = new AtomicBoolean();
+    private CountDownLatch tpchLoadComplete = new CountDownLatch(1);
 
-    public TestingPhoenixServer()
+    private TestingPhoenixServer()
     {
         java.util.logging.Logger.getLogger("org.apache").setLevel(Level.SEVERE);
         java.util.logging.Logger.getLogger(ZooKeeperServer.class.getName()).setLevel(Level.OFF);
@@ -54,13 +85,12 @@ public final class TestingPhoenixServer
         this.conf.setInt(MASTER_INFO_PORT, -1);
         this.conf.setInt(REGIONSERVER_INFO_PORT, -1);
         this.conf.setInt(HBASE_CLIENT_RETRIES_NUMBER, 1);
-        this.conf.set("hbase.regionserver.wal.codec", "org.apache.hadoop.hbase.regionserver.wal.IndexedWALEditCodec");
         this.conf.setBoolean("phoenix.schema.isNamespaceMappingEnabled", true);
         this.hbaseTestingUtility = new HBaseTestingUtility(conf);
 
         try {
-            this.port = randomPort();
-            this.hbaseTestingUtility.startMiniZKCluster(1, port);
+            MiniZooKeeperCluster zkCluster = this.hbaseTestingUtility.startMiniZKCluster();
+            port = zkCluster.getClientPort();
 
             MiniHBaseCluster hbm = hbaseTestingUtility.startMiniHBaseCluster(1, 4);
             hbm.waitForActiveAndReadyMaster();
@@ -69,14 +99,9 @@ public final class TestingPhoenixServer
         catch (Exception e) {
             throw new IllegalStateException("Can't start phoenix server.", e);
         }
-
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            close();
-        }));
     }
 
-    @Override
-    public void close()
+    private void shutdown()
     {
         if (hbaseTestingUtility != null) {
             try {
@@ -86,23 +111,30 @@ public final class TestingPhoenixServer
             }
             catch (IOException e) {
                 Thread.currentThread().interrupt();
-                throw new PrestoException(SERVER_SHUTTING_DOWN, "Failed to shutdown HTU instance", e);
+                throw new PrestoException(SERVER_SHUTTING_DOWN, "Failed to shutdown HBaseTestingUtility instance", e);
             }
             hbaseTestingUtility = null;
-        }
-    }
-
-    private static int randomPort()
-            throws IOException
-    {
-        try (ServerSocket socket = new ServerSocket()) {
-            socket.bind(new InetSocketAddress(0));
-            return socket.getLocalPort();
         }
     }
 
     public String getJdbcUrl()
     {
         return format("jdbc:phoenix:localhost:%d:/hbase;phoenix.schema.isNamespaceMappingEnabled=true", port);
+    }
+
+    public boolean isTpchLoaded()
+    {
+        return tpchLoaded.getAndSet(true);
+    }
+
+    public void setTpchLoaded()
+    {
+        tpchLoadComplete.countDown();
+    }
+
+    public void waitTpchLoaded()
+            throws InterruptedException
+    {
+        tpchLoadComplete.await();
     }
 }

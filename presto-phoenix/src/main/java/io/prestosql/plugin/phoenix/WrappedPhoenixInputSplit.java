@@ -15,7 +15,6 @@ package io.prestosql.plugin.phoenix;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
-import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteStreams;
 import org.apache.hadoop.io.WritableUtils;
 import org.apache.phoenix.mapreduce.PhoenixInputSplit;
@@ -46,9 +45,8 @@ public class WrappedPhoenixInputSplit
     public static WrappedPhoenixInputSplit fromBytes(byte[] bytes)
             throws IOException
     {
-        ByteArrayDataInput dataInput = ByteStreams.newDataInput(bytes);
         PhoenixInputSplit materialized = new PhoenixInputSplit();
-        materialized.readFields(dataInput);
+        materialized.readFields(ByteStreams.newDataInput(bytes));
         return new WrappedPhoenixInputSplit(materialized);
     }
 

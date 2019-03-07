@@ -13,13 +13,11 @@
  */
 package io.prestosql.plugin.phoenix;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import io.prestosql.Session;
 import io.prestosql.testing.MaterializedResult;
 import io.prestosql.testing.MaterializedRow;
 import io.prestosql.tests.AbstractTestIntegrationSmokeTest;
 import org.intellij.lang.annotations.Language;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.Test;
 
 import java.math.BigDecimal;
@@ -27,12 +25,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.regex.Pattern;
 
-import static io.airlift.tpch.TpchTable.ORDERS;
-import static io.prestosql.testing.TestingSession.testSessionBuilder;
+import static io.prestosql.plugin.phoenix.PhoenixQueryRunner.createPhoenixQueryRunner;
+import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
-import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 @Test
@@ -40,9 +37,8 @@ public class TestPhoenixIntegrationSmokeTest
         extends AbstractTestIntegrationSmokeTest
 {
     public TestPhoenixIntegrationSmokeTest()
-            throws Exception
     {
-        super(() -> PhoenixQueryRunner.createPhoenixQueryRunner(ImmutableMap.of(), ImmutableList.of(ORDERS)));
+        super(() -> createPhoenixQueryRunner(TestingPhoenixServer.getInstance()));
     }
 
     @Test
@@ -52,7 +48,7 @@ public class TestPhoenixIntegrationSmokeTest
 
         assertUpdate("CREATE TABLE new_schema.test (x bigint)");
 
-        assertQueryFails("DROP SCHEMA new_schema", Pattern.quote("ERROR 723 (43M06): Cannot mutate schema as schema has existing tables schemaName=NEW_SCHEMA"));
+        assertQueryFails("DROP SCHEMA new_schema", Pattern.quote("Error while executing statement"));
 
         assertUpdate("DROP TABLE new_schema.test");
 
@@ -82,40 +78,7 @@ public class TestPhoenixIntegrationSmokeTest
     }
 
     @Test
-    public void tesdtDuplicateKeyUpdateColumns()
-    {
-        assertUpdate("CREATE TABLE test_dup_columns WITH (ROWKEYS = 'RID') AS SELECT 'key' as RID, 100 AS COL1, 200 AS COL2, 300 AS COL3 ", 1);
-        assertQuery("SELECT col1 FROM test_dup_columns where rid = 'key'", "SELECT 100");
-        assertQuery("SELECT col2 FROM test_dup_columns where rid = 'key'", "SELECT 200");
-        assertQuery("SELECT col3 FROM test_dup_columns where rid = 'key'", "SELECT 300");
-
-        assertUpdate("INSERT INTO test_dup_columns VALUES('key', 1000, 2000, 3000)", 1);
-        assertQuery("SELECT col1 FROM test_dup_columns where rid = 'key'", "SELECT 1000");
-        assertQuery("SELECT col2 FROM test_dup_columns where rid = 'key'", "SELECT 2000");
-        assertQuery("SELECT col3 FROM test_dup_columns where rid = 'key'", "SELECT 3000");
-
-        Session session = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
-                .setSchema(getSession().getSchema().get())
-                .setCatalogSessionProperty("phoenix", "duplicate_key_update_columns", "col1 and col3").build();
-
-        assertUpdate(session, "INSERT INTO test_dup_columns VALUES('key', 10000, 20000, 30000)", 1);
-        assertQuery(session, "SELECT col1 FROM test_dup_columns where rid = 'key'", "SELECT 11000");
-        assertQuery(session, "SELECT col2 FROM test_dup_columns where rid = 'key'", "SELECT 2000");
-        assertQuery(session, "SELECT col3 FROM test_dup_columns where rid = 'key'", "SELECT 33000");
-
-        session = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
-                .setSchema(getSession().getSchema().get()).build();
-        assertUpdate(session, "INSERT INTO test_dup_columns VALUES('key', 1000, 2000, 3000)", 1);
-        assertQuery(session, "SELECT col1 FROM test_dup_columns where rid = 'key'", "SELECT 1000");
-        assertQuery(session, "SELECT col2 FROM test_dup_columns where rid = 'key'", "SELECT 2000");
-        assertQuery(session, "SELECT col3 FROM test_dup_columns where rid = 'key'", "SELECT 3000");
-    }
-
-    @Test
     public void createTableWithEveryType()
-            throws Exception
     {
         @Language("SQL")
         String query = "" +
@@ -149,44 +112,32 @@ public class TestPhoenixIntegrationSmokeTest
         assertEquals(row.getField(8), new BigDecimal("3.14"));
         assertEquals(row.getField(9), new BigDecimal("12345678901234567890.0123456789"));
         assertEquals(row.getField(10), "bar       ");
-        assertUpdate("DROP TABLE test_types_table");
 
+        // test types in WHERE clause
+        assertQueryWhere("test_types_table", "col_varchar", "'foo'");
+        assertQueryWhere("test_types_table", "col_varbinary", "cast('bar' as varbinary)");
+        assertQueryWhere("test_types_table", "col_bigint", "cast(1 as bigint)");
+        assertQueryWhere("test_types_table", "col_integer", "2");
+        assertQueryWhere("test_types_table", "col_double", "CAST('3.14' AS DOUBLE)");
+        assertQueryWhere("test_types_table", "col_boolean", "true");
+        assertQueryWhere("test_types_table", "col_date", "date('1980-05-07')");
+        assertQueryWhere("test_types_table", "col_timestamp", "TIMESTAMP '1980-05-07 11:22:33.456'");
+        assertQueryWhere("test_types_table", "col_decimal_short", "CAST('3.14' AS DECIMAL(3,2))");
+        assertQueryWhere("test_types_table", "col_decimal_long", "CAST('12345678901234567890.0123456789' AS DECIMAL(30,10))");
+        assertQueryWhere("test_types_table", "col_char", "CAST('bar' AS CHAR(10))");
+
+        assertUpdate("DROP TABLE test_types_table");
         assertFalse(getQueryRunner().tableExists(getSession(), "test_types_table"));
     }
 
-    @Test
-    public void testArrays()
+    private void assertQueryWhere(String tableName, String column, String value)
     {
-        assertUpdate("CREATE TABLE tmp_array1 AS SELECT 'key' as rkey, ARRAY[1, 2, NULL] AS col", 1);
-        assertQuery("SELECT col[2] FROM tmp_array1", "SELECT 2");
-        assertQuery("SELECT col[3] FROM tmp_array1", "SELECT 0");
-
-        assertUpdate("CREATE TABLE tmp_array2 AS SELECT 'key' as rkey, ARRAY[1.0E0, 2.5E0, 3.5E0] AS col", 1);
-        assertQuery("SELECT col[2] FROM tmp_array2", "SELECT 2.5");
-
-        assertUpdate("CREATE TABLE tmp_array3 AS SELECT 'key' as rkey, ARRAY['puppies', 'kittens', NULL] AS col", 1);
-        assertQuery("SELECT col[2] FROM tmp_array3", "SELECT 'kittens'");
-        assertQuery("SELECT col[3] FROM tmp_array3", "SELECT NULL");
-
-        assertUpdate("CREATE TABLE tmp_array4 AS SELECT 'key' as rkey, ARRAY[TRUE, NULL] AS col", 1);
-        assertQuery("SELECT col[1] FROM tmp_array4", "SELECT TRUE");
-        assertQuery("SELECT col[2] FROM tmp_array4", "SELECT FALSE");
+        assertQuery(format("SELECT count(*) FROM %s WHERE %s = %s", tableName, column, value), "select 1");
     }
 
-    @Test
-    public void testTemporalArrays()
+    @AfterClass(alwaysRun = true)
+    public void destroy()
     {
-        assertUpdate("CREATE TABLE tmp_array7 AS SELECT 'key' as rkey, ARRAY[DATE '2014-09-30'] AS col", 1);
-        assertOneNotNullResult("SELECT col[1] FROM tmp_array7");
-        assertUpdate("CREATE TABLE tmp_array8 AS SELECT 'key' as rkey, ARRAY[TIMESTAMP '2001-08-22 03:04:05.321'] AS col", 1);
-        assertOneNotNullResult("SELECT col[1] FROM tmp_array8");
-    }
-
-    private void assertOneNotNullResult(String query)
-    {
-        MaterializedResult results = getQueryRunner().execute(getSession(), query).toTestTypes();
-        assertEquals(results.getRowCount(), 1);
-        assertEquals(results.getMaterializedRows().get(0).getFieldCount(), 1);
-        assertNotNull(results.getMaterializedRows().get(0).getField(0));
+        TestingPhoenixServer.shutDown();
     }
 }
