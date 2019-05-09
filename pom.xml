@@ -142,6 +142,9 @@
         <module>presto-elasticsearch</module>
         <module>presto-iceberg</module>
         <module>presto-google-sheets</module>
+        <module>presto-argus</module>
+        <module>presto-argus-columnar</module>
+        <module>presto-argus-webservices</module>
     </modules>
 
     <dependencyManagement>

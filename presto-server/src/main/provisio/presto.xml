@@ -50,6 +50,12 @@
         </artifact>
     </artifactSet>
 
+    <artifactSet to="plugin/argus">
+        <artifact id="${project.groupId}:presto-argus:zip:${project.version}">
+            <unpack />
+        </artifact>
+    </artifactSet>
+
     <artifactSet to="plugin/cassandra">
         <artifact id="${project.groupId}:presto-cassandra:zip:${project.version}">
             <unpack />
