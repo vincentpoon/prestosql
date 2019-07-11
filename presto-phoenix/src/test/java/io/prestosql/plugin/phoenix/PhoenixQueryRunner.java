@@ -109,10 +109,10 @@ public final class PhoenixQueryRunner
         String target = table.getTableName();
         String tableProperties = "";
         if (LINE_ITEM.getTableName().equals(target)) {
-            tableProperties = "WITH (ROWKEYS = 'ORDERKEY,LINENUMBER', SALT_BUCKETS=10)";
+            tableProperties = "WITH (ROWKEYS = 'ORDERKEY,LINENUMBER', SALT_BUCKETS=3)";
         }
         else if (ORDERS.getTableName().equals(target)) {
-            tableProperties = "WITH (SALT_BUCKETS=10)";
+            tableProperties = "WITH (SALT_BUCKETS=3)";
         }
         else if (PART_SUPPLIER.getTableName().equals(target)) {
             tableProperties = "WITH (ROWKEYS = 'PARTKEY,SUPPKEY')";
