@@ -23,7 +23,9 @@ import io.prestosql.spi.predicate.TupleDomain;
 
 import javax.annotation.Nullable;
 
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 import static java.util.Objects.requireNonNull;
@@ -39,10 +41,11 @@ public final class JdbcTableHandle
     private final String tableName;
     private final TupleDomain<ColumnHandle> constraint;
     private final OptionalLong limit;
+    private final Optional<List<ColumnHandle>> projectedColumns;
 
     public JdbcTableHandle(SchemaTableName schemaTableName, @Nullable String catalogName, @Nullable String schemaName, String tableName)
     {
-        this(schemaTableName, catalogName, schemaName, tableName, TupleDomain.all(), OptionalLong.empty());
+        this(schemaTableName, catalogName, schemaName, tableName, TupleDomain.all(), OptionalLong.empty(), Optional.empty());
     }
 
     @JsonCreator
@@ -52,7 +55,8 @@ public final class JdbcTableHandle
             @JsonProperty("schemaName") @Nullable String schemaName,
             @JsonProperty("tableName") String tableName,
             @JsonProperty("constraint") TupleDomain<ColumnHandle> constraint,
-            @JsonProperty("limit") OptionalLong limit)
+            @JsonProperty("limit") OptionalLong limit,
+            @JsonProperty("projectedColumns") Optional<List<ColumnHandle>> projectedColumns)
     {
         this.schemaTableName = requireNonNull(schemaTableName, "schemaTableName is null");
         this.catalogName = catalogName;
@@ -60,6 +64,7 @@ public final class JdbcTableHandle
         this.tableName = requireNonNull(tableName, "tableName is null");
         this.constraint = requireNonNull(constraint, "constraint is null");
         this.limit = requireNonNull(limit, "limit is null");
+        this.projectedColumns = requireNonNull(projectedColumns, "projectedColumns is null");
     }
 
     @JsonProperty
@@ -98,6 +103,12 @@ public final class JdbcTableHandle
     public OptionalLong getLimit()
     {
         return limit;
+    }
+
+    @JsonProperty
+    public Optional<List<ColumnHandle>> getProjectedColumns()
+    {
+        return projectedColumns;
     }
 
     @Override

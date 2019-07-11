@@ -99,7 +99,8 @@ public class JdbcMetadata
                 handle.getSchemaName(),
                 handle.getTableName(),
                 newDomain,
-                handle.getLimit());
+                handle.getLimit(),
+                handle.getProjectedColumns());
 
         return Optional.of(new ConstraintApplicationResult<>(handle, constraint.getSummary()));
     }
@@ -123,7 +124,8 @@ public class JdbcMetadata
                 handle.getSchemaName(),
                 handle.getTableName(),
                 handle.getConstraint(),
-                OptionalLong.of(limit));
+                OptionalLong.of(limit),
+                handle.getProjectedColumns());
 
         return Optional.of(new LimitApplicationResult<>(handle, jdbcClient.isLimitGuaranteed()));
     }
