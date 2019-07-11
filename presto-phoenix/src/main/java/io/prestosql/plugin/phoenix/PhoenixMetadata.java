@@ -30,15 +30,20 @@ import io.prestosql.spi.connector.ConnectorOutputMetadata;
 import io.prestosql.spi.connector.ConnectorOutputTableHandle;
 import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.ConnectorTableHandle;
-import io.prestosql.spi.connector.ConnectorTableLayout;
-import io.prestosql.spi.connector.ConnectorTableLayoutHandle;
-import io.prestosql.spi.connector.ConnectorTableLayoutResult;
 import io.prestosql.spi.connector.ConnectorTableMetadata;
+import io.prestosql.spi.connector.ConnectorTableProperties;
 import io.prestosql.spi.connector.Constraint;
+import io.prestosql.spi.connector.ConstraintApplicationResult;
+import io.prestosql.spi.connector.LimitApplicationResult;
+import io.prestosql.spi.connector.ProjectionApplicationResult;
+import io.prestosql.spi.connector.ProjectionApplicationResult.Assignment;
 import io.prestosql.spi.connector.SchemaNotFoundException;
 import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.connector.SchemaTablePrefix;
 import io.prestosql.spi.connector.TableNotFoundException;
+import io.prestosql.spi.expression.ConnectorExpression;
+import io.prestosql.spi.expression.Variable;
+import io.prestosql.spi.predicate.TupleDomain;
 import io.prestosql.spi.statistics.ComputedStatistics;
 import io.prestosql.spi.type.Type;
 import org.apache.hadoop.hbase.HColumnDescriptor;
@@ -59,12 +64,17 @@ import java.io.IOException;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.function.Function;
+import java.util.stream.Collector;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -80,6 +90,7 @@ import static java.lang.String.join;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
 import static org.apache.hadoop.hbase.HConstants.FOREVER;
 import static org.apache.phoenix.util.PhoenixRuntime.getTable;
@@ -119,20 +130,6 @@ public class PhoenixMetadata
     }
 
     @Override
-    public List<ConnectorTableLayoutResult> getTableLayouts(ConnectorSession session, ConnectorTableHandle table, Constraint constraint, Optional<Set<ColumnHandle>> desiredColumns)
-    {
-        JdbcTableHandle tableHandle = (JdbcTableHandle) table;
-        ConnectorTableLayout layout = new ConnectorTableLayout(new PhoenixTableLayoutHandle(tableHandle, constraint.getSummary(), desiredColumns));
-        return ImmutableList.of(new ConnectorTableLayoutResult(layout, constraint.getSummary()));
-    }
-
-    @Override
-    public ConnectorTableLayout getTableLayout(ConnectorSession session, ConnectorTableLayoutHandle handle)
-    {
-        return new ConnectorTableLayout(handle);
-    }
-
-    @Override
     public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table)
     {
         return getTableMetadata(session, table, false);
@@ -149,9 +146,112 @@ public class PhoenixMetadata
     }
 
     @Override
+    public Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyFilter(ConnectorSession session, ConnectorTableHandle table, Constraint constraint)
+    {
+        JdbcTableHandle handle = (JdbcTableHandle) table;
+
+        TupleDomain<ColumnHandle> oldDomain = handle.getConstraint();
+        TupleDomain<ColumnHandle> newDomain = oldDomain.intersect(constraint.getSummary());
+        if (oldDomain.equals(newDomain)) {
+            return Optional.empty();
+        }
+
+        handle = new JdbcTableHandle(
+                handle.getSchemaTableName(),
+                handle.getCatalogName(),
+                handle.getSchemaName(),
+                handle.getTableName(),
+                newDomain,
+                handle.getLimit(),
+                handle.getProjectedColumns());
+
+        return Optional.of(new ConstraintApplicationResult<>(handle, constraint.getSummary()));
+    }
+
+    @Override
+    public Optional<ProjectionApplicationResult<ConnectorTableHandle>> applyProjection(ConnectorSession session, ConnectorTableHandle table, List<ConnectorExpression> projections, Map<String, ColumnHandle> assignments)
+    {
+        JdbcTableHandle handle = (JdbcTableHandle) table;
+
+        ImmutableList<ColumnHandle> newProjectedColumns = projections.stream()
+                .filter(Variable.class::isInstance)
+                .map(Variable.class::cast)
+                .map(variable -> assignments.get(variable.getName()))
+                .distinct()
+                .collect(toImmutableList());
+
+        List<ColumnHandle> oldProjectedColumns = handle.getProjectedColumns().orElse(ImmutableList.of());
+        if (oldProjectedColumns.equals(newProjectedColumns)) {
+            return Optional.empty();
+        }
+
+        handle = new JdbcTableHandle(
+                handle.getSchemaTableName(),
+                handle.getCatalogName(),
+                handle.getSchemaName(),
+                handle.getTableName(),
+                handle.getConstraint(),
+                handle.getLimit(),
+                Optional.of(newProjectedColumns));
+
+        Map<String, Assignment> orderedAssignments = projections.stream()
+                .filter(Variable.class::isInstance)
+                .map(Variable.class::cast)
+                .collect(toLinkedMap(
+                        Variable::getName,
+                        variable -> new Assignment(variable.getName(), assignments.get(variable.getName()), variable.getType())));
+
+        for (Entry<String, ColumnHandle> entry : assignments.entrySet()) {
+            JdbcColumnHandle jdbcColumn = (JdbcColumnHandle) entry.getValue();
+            orderedAssignments.putIfAbsent(entry.getKey(), new Assignment(entry.getKey(), jdbcColumn, jdbcColumn.getColumnType()));
+        }
+
+        return Optional.of(new ProjectionApplicationResult<>(
+                handle,
+                projections,
+                orderedAssignments.values().stream().collect(toImmutableList())));
+    }
+
+    private static <T, K, U> Collector<T, ?, Map<K, U>> toLinkedMap(Function<? super T, ? extends K> keyMapper, Function<? super T, ? extends U> valueMapper)
+    {
+        return toMap(
+                keyMapper,
+                valueMapper,
+                (u, v) -> u,
+                LinkedHashMap::new);
+    }
+
+    @Override
+    public Optional<LimitApplicationResult<ConnectorTableHandle>> applyLimit(ConnectorSession session, ConnectorTableHandle table, long limit)
+    {
+        JdbcTableHandle handle = (JdbcTableHandle) table;
+
+        if (handle.getLimit().isPresent() && handle.getLimit().getAsLong() <= limit) {
+            return Optional.empty();
+        }
+
+        handle = new JdbcTableHandle(
+                handle.getSchemaTableName(),
+                handle.getCatalogName(),
+                handle.getSchemaName(),
+                handle.getTableName(),
+                handle.getConstraint(),
+                OptionalLong.of(limit),
+                handle.getProjectedColumns());
+
+        return Optional.of(new LimitApplicationResult<>(handle, phoenixClient.isLimitGuaranteed()));
+    }
+
+    @Override
     public boolean usesLegacyTableLayouts()
     {
-        return true;
+        return false;
+    }
+
+    @Override
+    public ConnectorTableProperties getTableProperties(ConnectorSession session, ConnectorTableHandle handle)
+    {
+        return new ConnectorTableProperties();
     }
 
     public Map<String, Object> getTableProperties(ConnectorSession session, JdbcTableHandle handle)

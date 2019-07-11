@@ -40,6 +40,19 @@ public class TestPhoenixDistributedQueries
     }
 
     @Override
+    public void testAddColumn()
+    {
+        // TODO Auto-generated method stub
+        super.testAddColumn();
+    }
+
+    @Override
+    public void testApproxPercentile()
+    {
+        super.testApproxPercentile();
+    }
+
+    @Override
     protected boolean supportsViews()
     {
         return false;

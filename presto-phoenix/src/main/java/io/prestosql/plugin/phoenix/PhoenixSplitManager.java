@@ -18,14 +18,13 @@ import io.airlift.log.Logger;
 import io.prestosql.plugin.jdbc.JdbcColumnHandle;
 import io.prestosql.plugin.jdbc.JdbcIdentity;
 import io.prestosql.plugin.jdbc.JdbcTableHandle;
-import io.prestosql.plugin.jdbc.QueryBuilder;
 import io.prestosql.spi.HostAddress;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.ConnectorSplit;
 import io.prestosql.spi.connector.ConnectorSplitManager;
 import io.prestosql.spi.connector.ConnectorSplitSource;
-import io.prestosql.spi.connector.ConnectorTableLayoutHandle;
+import io.prestosql.spi.connector.ConnectorTableHandle;
 import io.prestosql.spi.connector.ConnectorTransactionHandle;
 import io.prestosql.spi.connector.FixedSplitSource;
 import org.apache.hadoop.hbase.HRegionLocation;
@@ -39,7 +38,6 @@ import org.apache.phoenix.jdbc.PhoenixConnection;
 import org.apache.phoenix.jdbc.PhoenixPreparedStatement;
 import org.apache.phoenix.mapreduce.PhoenixInputSplit;
 import org.apache.phoenix.query.KeyRange;
-import org.apache.phoenix.util.SchemaUtil;
 
 import javax.inject.Inject;
 
@@ -48,7 +46,6 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Function;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.prestosql.plugin.phoenix.PhoenixErrorCode.PHOENIX_INTERNAL_ERROR;
@@ -71,32 +68,27 @@ public class PhoenixSplitManager
     }
 
     @Override
-    public ConnectorSplitSource getSplits(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorTableLayoutHandle layout, SplitSchedulingStrategy splitSchedulingStrategy)
+    public ConnectorSplitSource getSplits(
+            ConnectorTransactionHandle transaction,
+            ConnectorSession session,
+            ConnectorTableHandle table,
+            SplitSchedulingStrategy splitSchedulingStrategy)
     {
-        PhoenixTableLayoutHandle layoutHandle = (PhoenixTableLayoutHandle) layout;
-        JdbcTableHandle handle = layoutHandle.getTable();
+        JdbcTableHandle tableHandle = (JdbcTableHandle) table;
+
         try (PhoenixConnection connection = phoenixClient.getConnection(JdbcIdentity.from(session))) {
-            List<JdbcColumnHandle> columns = layoutHandle.getDesiredColumns()
-                    .map(columnSet -> columnSet.stream().map(JdbcColumnHandle.class::cast).collect(toList()))
-                    .orElseGet(() -> phoenixClient.getColumns(session, handle));
-            PhoenixPreparedStatement inputQuery = (PhoenixPreparedStatement) new QueryBuilder(SchemaUtil.ESCAPE_CHARACTER).buildSql(
-                    phoenixClient,
-                    session,
-                    connection,
-                    handle.getCatalogName(),
-                    handle.getSchemaName(),
-                    handle.getTableName(),
-                    columns,
-                    layoutHandle.getTupleDomain(),
-                    Optional.empty(),
-                    Function.identity());
+            List<JdbcColumnHandle> columns = tableHandle.getProjectedColumns()
+                    .map(columnList -> columnList.stream().map(JdbcColumnHandle.class::cast).collect(toList()))
+                    // TODO shouldn't need to throw if all expressions can be translated in PushProjectionIntoTableScan
+                    .orElseThrow(() -> new PrestoException(PHOENIX_INTERNAL_ERROR, "No projected columns found"));
+
+            PhoenixPreparedStatement inputQuery = (PhoenixPreparedStatement) phoenixClient.buildSql(session, connection, tableHandle, columns, Optional.empty());
 
             List<ConnectorSplit> splits = getSplits(inputQuery).stream()
                     .map(PhoenixInputSplit.class::cast)
                     .map(split -> new PhoenixSplit(
                             getSplitAddresses(split),
-                            new WrappedPhoenixInputSplit(split),
-                            layoutHandle.getTupleDomain()))
+                            new WrappedPhoenixInputSplit(split)))
                     .collect(toImmutableList());
             return new FixedSplitSource(splits);
         }

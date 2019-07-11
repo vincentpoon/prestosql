@@ -23,7 +23,6 @@ import io.prestosql.plugin.jdbc.DriverConnectionFactory;
 import io.prestosql.plugin.jdbc.InternalBaseJdbc;
 import io.prestosql.plugin.jdbc.JdbcClient;
 import io.prestosql.plugin.jdbc.JdbcPageSinkProvider;
-import io.prestosql.plugin.jdbc.JdbcRecordSetProvider;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ConnectorPageSinkProvider;
 import io.prestosql.spi.connector.ConnectorRecordSetProvider;
@@ -57,8 +56,8 @@ public class PhoenixClientModule
     protected void setup(Binder binder)
     {
         binder.bind(ConnectorSplitManager.class).to(PhoenixSplitManager.class).in(Scopes.SINGLETON);
-        binder.bind(ConnectorRecordSetProvider.class).to(JdbcRecordSetProvider.class).in(Scopes.SINGLETON);
-        binder.bind(JdbcRecordSetProvider.class).in(Scopes.SINGLETON);
+        binder.bind(ConnectorRecordSetProvider.class).to(PhoenixRecordSetProvider.class).in(Scopes.SINGLETON);
+        binder.bind(PhoenixRecordSetProvider.class).in(Scopes.SINGLETON);
         binder.bind(ConnectorPageSinkProvider.class).to(JdbcPageSinkProvider.class).in(Scopes.SINGLETON);
         binder.bind(PhoenixClient.class).in(Scopes.SINGLETON);
         binder.bind(JdbcClient.class)

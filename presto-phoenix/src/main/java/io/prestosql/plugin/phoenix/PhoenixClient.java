@@ -174,17 +174,7 @@ public class PhoenixClient
             throws SQLException
     {
         PhoenixSplit phoenixSplit = (PhoenixSplit) split;
-        PreparedStatement query = new QueryBuilder(identifierQuote).buildSql(
-                this,
-                session,
-                connection,
-                table.getCatalogName(),
-                table.getSchemaName(),
-                table.getTableName(),
-                columnHandles,
-                phoenixSplit.getConstraint(),
-                split.getAdditionalPredicate(),
-                tryApplyLimit(table.getLimit()));
+        PreparedStatement query = buildSql(session, connection, table, columnHandles, phoenixSplit.getAdditionalPredicate());
         QueryPlan queryPlan = getQueryPlan((PhoenixPreparedStatement) query);
         ResultSet resultSet = getResultSet(phoenixSplit.getPhoenixInputSplit(), queryPlan);
         return new DelegatePreparedStatement(query)
@@ -197,10 +187,33 @@ public class PhoenixClient
         };
     }
 
+    public PreparedStatement buildSql(ConnectorSession session, Connection connection, JdbcTableHandle table, List<JdbcColumnHandle> columnHandles, Optional<String> additionalPredicate)
+            throws SQLException
+    {
+        PreparedStatement query = new QueryBuilder(identifierQuote).buildSql(
+                this,
+                session,
+                connection,
+                table.getCatalogName(),
+                table.getSchemaName(),
+                table.getTableName(),
+                columnHandles,
+                table.getConstraint(),
+                additionalPredicate,
+                tryApplyLimit(table.getLimit()));
+        return query;
+    }
+
     @Override
     protected Optional<BiFunction<String, Long, String>> limitFunction()
     {
         return Optional.of((sql, limit) -> sql + " LIMIT " + limit);
+    }
+
+    @Override
+    public boolean isLimitGuaranteed()
+    {
+        return false;
     }
 
     @Override
