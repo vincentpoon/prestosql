@@ -40,7 +40,7 @@ public class ArgusMetricQuery
         private String scope;
         private String metric;
         private Map<String, String> tags;
-        private String aggregator;
+        private String aggregator = "none";
         private String downsampler;
 
         public Builder setStart(Instant start)

@@ -27,6 +27,8 @@ import com.salesforce.dva.argus.system.SystemConfiguration;
 import io.airlift.log.Logger;
 import io.prestosql.jdbc.PrestoConnection;
 import io.prestosql.jdbc.PrestoDriver;
+import io.prestosql.plugin.argus.ArgusErrorCode;
+import io.prestosql.spi.PrestoException;
 
 import javax.inject.Inject;
 
@@ -50,6 +52,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Strings.isNullOrEmpty;
+import static com.salesforce.dva.argus.service.tsdb.MetricQuery.Aggregator.NONE;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 
@@ -112,6 +115,7 @@ public class PrestoTSDBService
         return result;
     }
 
+    @SuppressWarnings("unchecked")
     List<Metric> selectMetrics(MetricQuery metricQuery)
     {
         Map<String, Metric> metrics = new HashMap<>();
@@ -143,9 +147,15 @@ public class PrestoTSDBService
                 long timestamp = rs.getTimestamp("time").getTime();
                 String metricName = rs.getString("metric");
 
-                Map<String, String> tags = new HashMap<>();
-                for (String tagKey : metricQuery.getTags().keySet()) {
-                    tags.put(tagKey, rs.getString(tagKey));
+                Map<String, String> tags;
+                if (hasNoAggregator(metricQuery) && metricQuery.getTags().keySet().isEmpty()) {
+                    tags = (Map<String, String>) rs.getObject("tags");
+                }
+                else {
+                    tags = new HashMap<>();
+                    for (String tagKey : metricQuery.getTags().keySet()) {
+                        tags.put(tagKey, rs.getString(tagKey));
+                    }
                 }
 
                 Map<Long, Double> datapoints = new HashMap<>();
@@ -163,7 +173,7 @@ public class PrestoTSDBService
             }
         }
         catch (SQLException sqle) {
-            logger.warn("Failed to read data from Presto.", sqle);
+            throw new PrestoException(ArgusErrorCode.ARGUS_QUERY_ERROR, "Failed to read data from Presto.", sqle);
         }
 
         return new ArrayList<>(metrics.values());
@@ -200,11 +210,18 @@ public class PrestoTSDBService
         String groupByOrdinals = IntStream.range(1, tags.size() + 1)
                 .mapToObj(Integer::toString)
                 .collect(tagsJoiner);
-        String selectSql = MessageFormat.format("SELECT {0} {2}(value) value, time, scope, metric FROM {3}"
-                + " WHERE scope = ? AND time <= ? AND time >= ? {5} {4}"
-                + " GROUP BY {1} time, scope, metric", aliasedMapCols, groupByOrdinals, agg, metricsTableName, tagWhereClause, metricFilter);
+        String groupByClause = MessageFormat.format(" GROUP BY {0} time, scope, metric", groupByOrdinals);
+        if (hasNoAggregator(query)) {
+            groupByClause = "";
+            if (tags.isEmpty()) {
+                aliasedMapCols = "tags, ";
+                groupByOrdinals = "1, ";
+            }
+        }
+        String selectSql = MessageFormat.format("SELECT {0} {1}(value) value, time, scope, metric FROM {2}"
+                + " WHERE scope = ? AND time <= ? AND time >= ? {3} {4}"
+                + groupByClause, aliasedMapCols, agg, metricsTableName, metricFilter, tagWhereClause);
 
-        // TODO optimize case where aggregator = downsampler to single query
         if (query.getDownsampler() != null) {
             String downsamplingAgg = convertArgusAggregatorToPrestoAggregator(query.getDownsampler());
             long downsamplingPeriodSec = TimeUnit.SECONDS.convert(query.getDownsamplingPeriod(), TimeUnit.MILLISECONDS);
@@ -217,13 +234,17 @@ public class PrestoTSDBService
             String endTimeParameter = MessageFormat.format("from_unixtime((to_unixtime(?) + {0}) - ((to_unixtime(?) + {0}) % {0}))", Long.toString(downsamplingPeriodSec));
             // if no tags specified, need to downsample before aggregating.
             // specifying 'tags' groupBy here makes it so we don't aggregate
-            String downsamplingTagCols = isNullOrEmpty(aliasedMapCols) ? "tags," : aliasedMapCols;
-            String downsamplingTagGroupByOrdinals = isNullOrEmpty(aliasedMapCols) ? "1," : groupByOrdinals;
-            String downsamplingSql = MessageFormat.format(" WITH downsampled AS ("
-                            + "SELECT {2} {0}(value) downsampled_value, scope, metric, {1} as downsampled_time "
+            String downsamplingTagCols = aliasedMapCols;
+            String downsamplingTagGroupByOrdinals = groupByOrdinals;
+            if (!query.getDownsampler().equals(query.getAggregator()) && isNullOrEmpty(aliasedMapCols)) { // if same aggregator, optimize with single query
+                downsamplingTagCols = "tags,";
+                downsamplingTagGroupByOrdinals = "1,";
+            }
+            String downsamplingSql = MessageFormat.format(
+                    "SELECT {2} {0}(value) value, scope, metric, {1} time "
                             + "FROM {3} "
                             + "WHERE scope = ? AND time < {7} AND time >= {8} {6} {4} "
-                            + "GROUP BY {5} scope, metric, {1}) ",
+                            + "GROUP BY {5} scope, metric, {1} ",
                     downsamplingAgg,
                     timeDownsampleFunction,
                     downsamplingTagCols,
@@ -233,19 +254,30 @@ public class PrestoTSDBService
                     metricFilter,
                     endTimeParameter,
                     startTimeParameter);
+            if (query.getDownsampler().equals(query.getAggregator())) {
+                return downsamplingSql;
+            }
             String tagKeyCols = tags.keySet().stream().map(tagKey -> "\"" + tagKey + "\"").collect(tagsJoiner);
-            selectSql = MessageFormat.format("{3} SELECT {1} {0}(downsampled_value) AS value, downsampled_time as \"time\", scope, metric FROM downsampled "
-                            + "GROUP BY {2} downsampled_time, scope, metric",
-                    agg, tagKeyCols, groupByOrdinals, downsamplingSql);
+            if (hasNoAggregator(query) && tags.isEmpty()) {
+                tagKeyCols = "tags,";
+            }
+            selectSql = MessageFormat.format(" WITH downsampled AS ({2}) SELECT {1} {0}(value) AS value, time as \"time\", scope, metric FROM downsampled "
+                            + groupByClause,
+                    agg, tagKeyCols, downsamplingSql);
         }
 
         return selectSql;
     }
 
+    private static boolean hasNoAggregator(MetricQuery query)
+    {
+        return query.getAggregator() == null || query.getAggregator().equals(NONE);
+    }
+
     private static String convertArgusAggregatorToPrestoAggregator(Aggregator aggregator)
     {
         if (aggregator == null) {
-            return "AVG";
+            return "";
         }
 
         // TODO currently no equivalent in Presto for aggregators with interpolation
@@ -265,6 +297,9 @@ public class PrestoTSDBService
                 return "STDDEV_POP";
             case COUNT:
                 return "COUNT";
+            case NONE:
+                // if no aggreagtor, return all tags
+                return "";
             default:
                 throw new UnsupportedOperationException("Unsupported aggregator: " + aggregator);
         }
