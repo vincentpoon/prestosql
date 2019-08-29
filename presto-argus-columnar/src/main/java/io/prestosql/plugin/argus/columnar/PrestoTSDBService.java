@@ -193,8 +193,8 @@ public class PrestoTSDBService
             metricFilter = " AND metric = ?";
         }
         String agg = convertArgusAggregatorToPrestoAggregator(query.getAggregator());
-        Map<String, String> tags = query.getTags();
 
+        Map<String, String> tags = query.getTags();
         String tagWhereClause = tags.entrySet().stream()
                 .filter(entry -> !entry.getValue().equals("*"))
                 .map(entry -> MessageFormat.format(
@@ -202,11 +202,11 @@ public class PrestoTSDBService
                         entry.getKey(),
                         Stream.of(entry.getValue().split("\\|")).map(singleValue -> "'" + singleValue + "'").collect(joining(","))))
                 .collect(joining(","));
-
         Collector<CharSequence, ?, String> tagsJoiner = joining(",", "", tags.size() > 0 ? "," : "");
         String aliasedMapCols = tags.keySet().stream()
                 .map(tagKey -> MessageFormat.format("tags[''{0}''] as \"{0}\"", tagKey))
                 .collect(tagsJoiner);
+
         String groupByOrdinals = IntStream.range(1, tags.size() + 1)
                 .mapToObj(Integer::toString)
                 .collect(tagsJoiner);
@@ -218,42 +218,13 @@ public class PrestoTSDBService
                 groupByOrdinals = "1, ";
             }
         }
+
         String selectSql = MessageFormat.format("SELECT {0} {1}(value) value, time, scope, metric FROM {2}"
                 + " WHERE scope = ? AND time <= ? AND time >= ? {3} {4}"
                 + groupByClause, aliasedMapCols, agg, metricsTableName, metricFilter, tagWhereClause);
 
         if (query.getDownsampler() != null) {
-            String downsamplingAgg = convertArgusAggregatorToPrestoAggregator(query.getDownsampler());
-            long downsamplingPeriodSec = TimeUnit.SECONDS.convert(query.getDownsamplingPeriod(), TimeUnit.MILLISECONDS);
-            String timeDownsampleFunction = MessageFormat.format("from_unixtime(to_unixtime(time) - (to_unixtime(time) % {0}))", Long.toString(downsamplingPeriodSec));
-            String startTimeParameter = MessageFormat.format("from_unixtime(to_unixtime(?) - (to_unixtime(?) % {0}))", Long.toString(downsamplingPeriodSec));
-            // to make the results the same as an OTSDB query,
-            // need to fetch all the data points required for aggregating the last time interval
-            // e.g. if end_time=timestamp '2019-07-01 15:00' and downsampler='15m-zimsum',
-            // we need to query up to 15:15 to be able to downsample to 15:00
-            String endTimeParameter = MessageFormat.format("from_unixtime((to_unixtime(?) + {0}) - (to_unixtime(?) % {0}))", Long.toString(downsamplingPeriodSec));
-            // if no tags specified, need to downsample before aggregating.
-            // specifying 'tags' groupBy here makes it so we don't aggregate
-            String downsamplingTagCols = aliasedMapCols;
-            String downsamplingTagGroupByOrdinals = groupByOrdinals;
-            if (!query.getDownsampler().equals(query.getAggregator()) && isNullOrEmpty(aliasedMapCols)) { // if same aggregator, optimize with single query
-                downsamplingTagCols = "tags,";
-                downsamplingTagGroupByOrdinals = "1,";
-            }
-            String downsamplingSql = MessageFormat.format(
-                    "SELECT {2} {0}(value) value, scope, metric, {1} time "
-                            + "FROM {3} "
-                            + "WHERE scope = ? AND time < {7} AND time >= {8} {6} {4} "
-                            + "GROUP BY {5} scope, metric, {1} ",
-                    downsamplingAgg,
-                    timeDownsampleFunction,
-                    downsamplingTagCols,
-                    metricsTableName,
-                    tagWhereClause,
-                    downsamplingTagGroupByOrdinals,
-                    metricFilter,
-                    endTimeParameter,
-                    startTimeParameter);
+            String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, metricFilter,tagWhereClause, aliasedMapCols, groupByOrdinals);
             if (query.getDownsampler().equals(query.getAggregator())) {
                 return downsamplingSql;
             }
@@ -267,6 +238,41 @@ public class PrestoTSDBService
         }
 
         return selectSql;
+    }
+
+    private static String buildDownsamplingQuery(MetricQuery query, String metricsTableName, String metricFilter, String tagWhereClause, String aliasedMapCols, String groupByOrdinals)
+    {
+        String downsamplingAgg = convertArgusAggregatorToPrestoAggregator(query.getDownsampler());
+        long downsamplingPeriodSec = TimeUnit.SECONDS.convert(query.getDownsamplingPeriod(), TimeUnit.MILLISECONDS);
+        String timeDownsampleFunction = MessageFormat.format("from_unixtime(to_unixtime(time) - (to_unixtime(time) % {0}))", Long.toString(downsamplingPeriodSec));
+        String startTimeParameter = MessageFormat.format("from_unixtime(to_unixtime(?) - (to_unixtime(?) % {0}))", Long.toString(downsamplingPeriodSec));
+        // to make the results the same as an OTSDB query,
+        // need to fetch all the data points required for aggregating the last time interval
+        // e.g. if end_time=timestamp '2019-07-01 15:00' and downsampler='15m-zimsum',
+        // we need to query up to 15:15 to be able to downsample to 15:00
+        String endTimeParameter = MessageFormat.format("from_unixtime((to_unixtime(?) + {0}) - (to_unixtime(?) % {0}))", Long.toString(downsamplingPeriodSec));
+        // If no tags are specified, we need to downsample before aggregating.
+        // Specifying 'tags' groupBy here makes it so we don't aggregate.
+        // But if downsampler=aggregator, we *do* want the aggregating to happen, as an optimization to do everything in one query
+        if (!query.getDownsampler().equals(query.getAggregator()) && isNullOrEmpty(aliasedMapCols)) { 
+            aliasedMapCols = "tags,";
+            groupByOrdinals = "1,";
+        }
+        String downsamplingSql = MessageFormat.format(
+                "SELECT {2} {0}(value) value, scope, metric, {1} time "
+                        + "FROM {3} "
+                        + "WHERE scope = ? AND time < {7} AND time >= {8} {6} {4} "
+                        + "GROUP BY {5} scope, metric, {1} ",
+                downsamplingAgg,
+                timeDownsampleFunction,
+                aliasedMapCols,
+                metricsTableName,
+                tagWhereClause,
+                groupByOrdinals,
+                metricFilter,
+                endTimeParameter,
+                startTimeParameter);
+        return downsamplingSql;
     }
 
     private static boolean hasNoAggregator(MetricQuery query)
