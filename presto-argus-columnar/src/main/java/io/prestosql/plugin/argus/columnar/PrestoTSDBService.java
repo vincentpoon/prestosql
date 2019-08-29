@@ -224,7 +224,7 @@ public class PrestoTSDBService
                 + groupByClause, aliasedMapCols, agg, metricsTableName, metricFilter, tagWhereClause);
 
         if (query.getDownsampler() != null) {
-            String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, metricFilter,tagWhereClause, aliasedMapCols, groupByOrdinals);
+            String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, metricFilter, tagWhereClause, aliasedMapCols, groupByOrdinals);
             if (query.getDownsampler().equals(query.getAggregator())) {
                 return downsamplingSql;
             }
@@ -254,7 +254,7 @@ public class PrestoTSDBService
         // If no tags are specified, we need to downsample before aggregating.
         // Specifying 'tags' groupBy here makes it so we don't aggregate.
         // But if downsampler=aggregator, we *do* want the aggregating to happen, as an optimization to do everything in one query
-        if (!query.getDownsampler().equals(query.getAggregator()) && isNullOrEmpty(aliasedMapCols)) { 
+        if (!query.getDownsampler().equals(query.getAggregator()) && isNullOrEmpty(aliasedMapCols)) {
             aliasedMapCols = "tags,";
             groupByOrdinals = "1,";
         }

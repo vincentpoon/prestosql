@@ -132,12 +132,6 @@ public class ArgusSplitManager
         if (domains.get(EXPRESSION_HANDLE) != null) {
             return;
         }
-        if (domains.get(SCOPE_COLUMN_HANDLE) == null) {
-            throw new PrestoException(ARGUS_QUERY_ERROR, "scope is null");
-        }
-        if (domains.get(METRIC_COLUMN_HANDLE) == null) {
-            throw new PrestoException(ARGUS_QUERY_ERROR, "metric is null");
-        }
         for (ColumnDomain<ColumnHandle> columnDomain : constraint.getColumnDomains().get()) {
             ArgusColumnHandle handle = (ArgusColumnHandle) columnDomain.getColumn();
             Domain domain = columnDomain.getDomain();

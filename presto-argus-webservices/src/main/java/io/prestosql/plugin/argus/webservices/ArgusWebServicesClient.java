@@ -25,7 +25,6 @@ import io.prestosql.plugin.argus.ArgusClient;
 import io.prestosql.plugin.argus.ArgusColumnHandle;
 import io.prestosql.plugin.argus.ArgusErrorCode;
 import io.prestosql.plugin.argus.ArgusMetadata;
-import io.prestosql.plugin.argus.ArgusMetricQuery;
 import io.prestosql.plugin.argus.ArgusSplit;
 import io.prestosql.plugin.argus.ArgusTableHandle;
 import io.prestosql.spi.PrestoException;
