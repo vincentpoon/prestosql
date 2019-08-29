@@ -231,7 +231,7 @@ public class PrestoTSDBService
             // need to fetch all the data points required for aggregating the last time interval
             // e.g. if end_time=timestamp '2019-07-01 15:00' and downsampler='15m-zimsum',
             // we need to query up to 15:15 to be able to downsample to 15:00
-            String endTimeParameter = MessageFormat.format("from_unixtime((to_unixtime(?) + {0}) - ((to_unixtime(?) + {0}) % {0}))", Long.toString(downsamplingPeriodSec));
+            String endTimeParameter = MessageFormat.format("from_unixtime((to_unixtime(?) + {0}) - (to_unixtime(?) % {0}))", Long.toString(downsamplingPeriodSec));
             // if no tags specified, need to downsample before aggregating.
             // specifying 'tags' groupBy here makes it so we don't aggregate
             String downsamplingTagCols = aliasedMapCols;
