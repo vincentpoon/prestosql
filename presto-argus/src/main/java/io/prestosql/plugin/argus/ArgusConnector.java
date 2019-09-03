@@ -38,7 +38,7 @@ public class ArgusConnector
 
     private final LifeCycleManager lifeCycleManager;
     private final ArgusMetadata metadata;
-    private final ArgusSplitManager splitManager;
+    private final ConnectorSplitManager splitManager;
     private final ArgusPageSourceProvider pageSourceProvider;
     private final ArgusSessionProperties sessionProperties;
 
@@ -46,7 +46,7 @@ public class ArgusConnector
     public ArgusConnector(
             LifeCycleManager lifeCycleManager,
             ArgusMetadata metadata,
-            ArgusSplitManager splitManager,
+            ConnectorSplitManager splitManager,
             ArgusPageSourceProvider pageSourceProvider,
             ArgusSessionProperties sessionProperties)
     {

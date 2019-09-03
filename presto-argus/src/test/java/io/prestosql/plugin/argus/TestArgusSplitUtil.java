@@ -16,13 +16,11 @@ package io.prestosql.plugin.argus;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.prestosql.spi.connector.ColumnHandle;
-import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.predicate.Domain;
 import io.prestosql.spi.predicate.Range;
 import io.prestosql.spi.predicate.TupleDomain;
 import io.prestosql.spi.predicate.ValueSet;
-import io.prestosql.testing.TestingConnectorSession;
 import org.testng.annotations.Test;
 
 import java.time.Instant;
@@ -33,7 +31,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 
 import static io.airlift.slice.Slices.utf8Slice;
-import static io.prestosql.plugin.argus.ArgusSessionProperties.TIME_RANGE_SPLITS;
+import static io.prestosql.plugin.argus.ArgusSplitUtil.getMetricQuerySplits;
 import static io.prestosql.plugin.argus.MetadataUtil.END_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.MAPPED_METRICS_TABLE_NAME;
 import static io.prestosql.plugin.argus.MetadataUtil.METRIC_COLUMN_HANDLE;
@@ -46,10 +44,8 @@ import static java.time.ZoneOffset.UTC;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
-public class TestArgusSplitManager
+public class TestArgusSplitUtil
 {
-    private ArgusSplitManager splitManager = new ArgusSplitManager();
-
     @Test
     public void testGetMetricQuerySplits()
     {
@@ -71,16 +67,14 @@ public class TestArgusSplitManager
         TupleDomain<ColumnHandle> constraint = TupleDomain.withColumnDomains(domains);
         ArgusTableHandle handle = new ArgusTableHandle(new SchemaTableName(SYSTEM_SCHEMA_NAME, MAPPED_METRICS_TABLE_NAME), constraint, OptionalLong.empty());
 
-        ConnectorSession session = newSession(numTimeRangeSplits);
-        ImmutableList<ArgusSplit> splits = splitManager.getMetricQuerySplits(session, handle);
+        ImmutableList<ArgusSplit> splits = getMetricQuerySplits(numTimeRangeSplits, handle);
         assertEquals(splits.size(), numTimeRangeSplits);
         ArgusSplit split = splits.get(0);
         assertEquals(split.getStart().get(), start);
         assertEquals(split.getEnd(), Optional.empty());
 
         numTimeRangeSplits = 2;
-        session = newSession(numTimeRangeSplits);
-        splits = splitManager.getMetricQuerySplits(session, handle);
+        splits = getMetricQuerySplits(numTimeRangeSplits, handle);
         assertEquals(splits.size(), numTimeRangeSplits);
         ArgusSplit split0 = splits.get(0);
         assertEquals(split0.getStart().get(), start);
@@ -98,8 +92,7 @@ public class TestArgusSplitManager
         constraint = TupleDomain.withColumnDomains(domains);
         handle = new ArgusTableHandle(new SchemaTableName(SYSTEM_SCHEMA_NAME, MAPPED_METRICS_TABLE_NAME), constraint, OptionalLong.empty());
         numTimeRangeSplits = 3;
-        session = newSession(numTimeRangeSplits);
-        splits = splitManager.getMetricQuerySplits(session, handle);
+        splits = getMetricQuerySplits(numTimeRangeSplits, handle);
         assertEquals(splits.size(), 3);
         split0 = splits.get(0);
         assertEquals(split0.getStart().get(), start);
@@ -108,10 +101,5 @@ public class TestArgusSplitManager
         assertEquals(LocalDateTime.ofInstant(split1.getEnd().get(), UTC).getDayOfMonth(), 29);
         ArgusSplit split2 = splits.get(2);
         assertEquals(split2.getEnd().get(), end);
-    }
-
-    private ConnectorSession newSession(int numTimeRangeSplits)
-    {
-        return new TestingConnectorSession(new ArgusSessionProperties().getSessionProperties(), ImmutableMap.of(TIME_RANGE_SPLITS, numTimeRangeSplits));
     }
 }

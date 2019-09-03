@@ -11,18 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.prestosql.plugin.argus;
+package io.prestosql.plugin.argus.columnar;
 
-import io.prestosql.spi.session.PropertyMetadata;
+import io.prestosql.plugin.argus.ArgusSessionProperties;
 
-import java.util.List;
-
-import static java.util.Collections.emptyList;
-
-public interface ArgusSessionProperties
+public class ArgusColumnarSessionProperties
+        implements ArgusSessionProperties
 {
-    default List<PropertyMetadata<?>> getSessionProperties()
-    {
-        return emptyList();
-    }
 }

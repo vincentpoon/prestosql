@@ -23,7 +23,7 @@ import io.prestosql.plugin.argus.ArgusMetadata;
 import io.prestosql.plugin.argus.ArgusPageSourceProvider;
 import io.prestosql.plugin.argus.ArgusRecordSetProvider;
 import io.prestosql.plugin.argus.ArgusSessionProperties;
-import io.prestosql.plugin.argus.ArgusSplitManager;
+import io.prestosql.spi.connector.ConnectorSplitManager;
 
 import static io.airlift.configuration.ConfigBinder.configBinder;
 
@@ -38,9 +38,9 @@ public class ArgusColumnarModule
         binder.bind(ArgusClient.class).to(ArgusPrestoClient.class).in(Scopes.SINGLETON);
         binder.bind(TSDBService.class).to(PrestoTSDBService.class).in(Scopes.SINGLETON);
         binder.bind(ArgusRecordSetProvider.class).in(Scopes.SINGLETON);
-        binder.bind(ArgusSplitManager.class).in(Scopes.SINGLETON);
+        binder.bind(ConnectorSplitManager.class).to(ArgusColumnarSplitManager.class).in(Scopes.SINGLETON);
         binder.bind(ArgusPageSourceProvider.class).in(Scopes.SINGLETON);
-        binder.bind(ArgusSessionProperties.class).in(Scopes.SINGLETON);
+        binder.bind(ArgusSessionProperties.class).to(ArgusColumnarSessionProperties.class).in(Scopes.SINGLETON);
 
         configBinder(binder).bindConfig(ArgusColumnarConfig.class);
     }

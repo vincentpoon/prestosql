@@ -1,50 +1,50 @@
 [
- {
+  {
     "type": "GET",
-     "endpoint": "/discover/metrics/schemarecords?namespace=*&scope=*&metric=*&tagk=*&tagv=*&limit=50",
-    "jsonInput" :null,
+    "endpoint": "/discover/metrics/schemarecords?namespace=*&scope=*&metric=*&tagk=*&tagv=*&limit=50",
+    "jsonInput": null,
     "status": 200,
     "message": "success",
-    "jsonOutput" : "[{\"namespace\":null,\"scope\":\"aScope\",\"metric\":\"aMetric\",\"tagk\":\"aTagK\",\"tagv\":\"aTagV\"}]"
- },
- {
+    "jsonOutput": "[{\"namespace\":null,\"scope\":\"aScope\",\"metric\":\"aMetric\",\"tagk\":\"aTagK\",\"tagv\":\"aTagV\"}]"
+  },
+  {
     "type": "GET",
-     "endpoint": "/discover/metrics/schemarecords?namespace=*&scope=multipart.scope.*&metric=*&tagk=*&tagv=*&limit=50",
-    "jsonInput" :null,
+    "endpoint": "/discover/metrics/schemarecords?namespace=*&scope=multipart.scope.*&metric=*&tagk=*&tagv=*&limit=50",
+    "jsonInput": null,
     "status": 200,
     "message": "success",
-    "jsonOutput" : "[{\"namespace\":null,\"scope\":\"multipart.scope.first\",\"metric\":\"someMetric\",\"tagk\":\"source\",\"tagv\":\"TCollector\",\"_retention_discovery_\":null},{\"namespace\":null,\"scope\":\"multipart.scope.second\",\"metric\":\"someMetric\",\"tagk\":\"device\",\"tagv\":\"example-host.com\",\"_retention_discovery_\":null}]"
- },
- {
+    "jsonOutput": "[{\"namespace\":null,\"scope\":\"multipart.scope.first\",\"metric\":\"someMetric\",\"tagk\":\"source\",\"tagv\":\"TCollector\",\"_retention_discovery_\":null},{\"namespace\":null,\"scope\":\"multipart.scope.second\",\"metric\":\"someMetric\",\"tagk\":\"device\",\"tagv\":\"example-host.com\",\"_retention_discovery_\":null}]"
+  },
+  {
     "type": "GET",
-     "endpoint": "/discover/metrics/schemarecords?namespace=*&scope=multipart.scope.*&metric=*&tagk=*&tagv=*&limit=1",
-    "jsonInput" :null,
+    "endpoint": "/discover/metrics/schemarecords?namespace=*&scope=multipart.scope.*&metric=*&tagk=*&tagv=*&limit=1",
+    "jsonInput": null,
     "status": 200,
     "message": "success",
-    "jsonOutput" : "[{\"namespace\":null,\"scope\":\"aScope\",\"metric\":\"aMetric\",\"tagk\":\"aTagK\",\"tagv\":\"aTagV\"}]"
- },
- {
+    "jsonOutput": "[{\"namespace\":null,\"scope\":\"aScope\",\"metric\":\"aMetric\",\"tagk\":\"aTagK\",\"tagv\":\"aTagV\"}]"
+  },
+  {
     "type": "GET",
-     "endpoint": "/metrics?expression=1560887100000:multipart.scope.first:some.metric.one:avg",
-    "jsonInput" :null,
+    "endpoint": "/metrics?expression=1560887100000:multipart.scope.first:some.metric.one:avg",
+    "jsonInput": null,
     "status": 200,
     "message": "success",
-    "jsonOutput" : "[{\"scope\":\"multipart.scope.first\",\"metric\":\"some.metric.one\",\"tags\":{},\"namespace\":null,\"displayName\":null,\"units\":null,\"datapoints\":{\"1560887100000\":123.456,\"1560887100001\":234.567,\"1560887100002\":345.678},\"metatagsKey\":null,\"metatags\":null}]"
- },
- {
+    "jsonOutput": "[{\"scope\":\"multipart.scope.first\",\"metric\":\"some.metric.one\",\"tags\":{},\"namespace\":null,\"displayName\":null,\"units\":null,\"datapoints\":{\"1560887100000\":123.456,\"1560887100001\":234.567,\"1560887100002\":345.678},\"metatagsKey\":null,\"metatags\":null}]"
+  },
+  {
     "type": "GET",
-     "endpoint": "/metrics?expression=1560887100000:multipart.scope.first:some.metric.one{device=*,source=*}:avg:1m-max",
-    "jsonInput" :null,
+    "endpoint": "/metrics?expression=1560887100000:multipart.scope.first:some.metric.one{device=*,source=*}:avg:1m-max",
+    "jsonInput": null,
     "status": 200,
     "message": "success",
-    "jsonOutput" : "[{\"scope\":\"multipart.scope.first\",\"metric\":\"some.metric.one\",\"tags\":{\"device\":\"testDeviceA\",\"source\":\"testSource\"},\"namespace\":null,\"displayName\":null,\"units\":null,\"datapoints\":{\"1560887100000\":123.456,\"1560887100001\":234.567,\"1560887100002\":345.678},\"metatagsKey\":null,\"metatags\":null}]"
- },
- {
+    "jsonOutput": "[{\"scope\":\"multipart.scope.first\",\"metric\":\"some.metric.one\",\"tags\":{\"device\":\"testDeviceA\",\"source\":\"testSource\"},\"namespace\":null,\"displayName\":null,\"units\":null,\"datapoints\":{\"1560887100000\":123.456,\"1560887100001\":234.567,\"1560887100002\":345.678},\"metatagsKey\":null,\"metatags\":null}]"
+  },
+  {
     "type": "GET",
-     "endpoint": "/metrics?expression=1560887100000:multipart.scope.first:multiple.results:avg",
-    "jsonInput" :null,
+    "endpoint": "/metrics?expression=1560887100000:multipart.scope.first:multiple.results:avg",
+    "jsonInput": null,
     "status": 200,
     "message": "success",
-    "jsonOutput" : "[{\"scope\":\"multipart.scope.first\",\"metric\":\"some.metric.one\",\"tags\":{\"device\":\"testDeviceA\",\"source\":\"testSource\"},\"namespace\":null,\"displayName\":null,\"units\":null,\"datapoints\":{\"1560887100000\":123.456,\"1560887100001\":234.567,\"1560887100002\":345.678},\"metatagsKey\":null,\"metatags\":null},{\"scope\":\"multipart.scope.first\",\"metric\":\"some.metric.one\",\"tags\":{\"device\":\"testDeviceB\",\"source\":\"testSource\"},\"namespace\":null,\"displayName\":null,\"units\":null,\"datapoints\":{\"1560887100000\":9123.456,\"1560887100001\":9234.567,\"1560887100002\":9345.678},\"metatagsKey\":null,\"metatags\":null}]"
- }
+    "jsonOutput": "[{\"scope\":\"multipart.scope.first\",\"metric\":\"some.metric.one\",\"tags\":{\"device\":\"testDeviceA\",\"source\":\"testSource\"},\"namespace\":null,\"displayName\":null,\"units\":null,\"datapoints\":{\"1560887100000\":123.456,\"1560887100001\":234.567,\"1560887100002\":345.678},\"metatagsKey\":null,\"metatags\":null},{\"scope\":\"multipart.scope.first\",\"metric\":\"some.metric.one\",\"tags\":{\"device\":\"testDeviceB\",\"source\":\"testSource\"},\"namespace\":null,\"displayName\":null,\"units\":null,\"datapoints\":{\"1560887100000\":9123.456,\"1560887100001\":9234.567,\"1560887100002\":9345.678},\"metatagsKey\":null,\"metatags\":null}]"
+  }
 ]

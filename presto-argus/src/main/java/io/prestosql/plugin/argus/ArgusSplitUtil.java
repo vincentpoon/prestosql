@@ -13,25 +13,15 @@
  */
 package io.prestosql.plugin.argus;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import io.airlift.slice.Slice;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ColumnHandle;
-import io.prestosql.spi.connector.ConnectorSession;
-import io.prestosql.spi.connector.ConnectorSplitManager;
-import io.prestosql.spi.connector.ConnectorSplitSource;
-import io.prestosql.spi.connector.ConnectorTableHandle;
-import io.prestosql.spi.connector.ConnectorTransactionHandle;
-import io.prestosql.spi.connector.FixedSplitSource;
-import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.predicate.Domain;
 import io.prestosql.spi.predicate.Range;
 import io.prestosql.spi.predicate.TupleDomain;
 import io.prestosql.spi.predicate.TupleDomain.ColumnDomain;
-
-import javax.inject.Inject;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -40,53 +30,25 @@ import java.util.Optional;
 
 import static io.prestosql.plugin.argus.ArgusErrorCode.ARGUS_QUERY_ERROR;
 import static io.prestosql.plugin.argus.MetadataUtil.AGGREGATOR;
-import static io.prestosql.plugin.argus.MetadataUtil.DISCOVERY_TABLE_NAME;
 import static io.prestosql.plugin.argus.MetadataUtil.DOWNSAMPLER;
 import static io.prestosql.plugin.argus.MetadataUtil.END;
 import static io.prestosql.plugin.argus.MetadataUtil.END_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.EXPRESSION;
 import static io.prestosql.plugin.argus.MetadataUtil.EXPRESSION_HANDLE;
-import static io.prestosql.plugin.argus.MetadataUtil.MAPPED_METRICS_TABLE_NAME;
 import static io.prestosql.plugin.argus.MetadataUtil.METRIC;
 import static io.prestosql.plugin.argus.MetadataUtil.METRIC_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.SCOPE;
 import static io.prestosql.plugin.argus.MetadataUtil.SCOPE_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.START;
 import static io.prestosql.plugin.argus.MetadataUtil.START_COLUMN_HANDLE;
-import static io.prestosql.plugin.argus.MetadataUtil.isSystemSchema;
 import static java.lang.String.format;
 import static java.time.temporal.ChronoUnit.HOURS;
 
-public class ArgusSplitManager
-        implements ConnectorSplitManager
+public class ArgusSplitUtil
 {
-    @Inject
-    public ArgusSplitManager() {}
+    private ArgusSplitUtil() {}
 
-    @Override
-    public ConnectorSplitSource getSplits(
-            ConnectorTransactionHandle transaction,
-            ConnectorSession session,
-            ConnectorTableHandle table,
-            SplitSchedulingStrategy splitSchedulingStrategy)
-    {
-        ArgusTableHandle handle = (ArgusTableHandle) table;
-        SchemaTableName schemaTableName = handle.getSchemaTableName();
-        if (isSystemSchema(schemaTableName.getSchemaName())) {
-            if (DISCOVERY_TABLE_NAME.equals(schemaTableName.getTableName())) {
-                return new FixedSplitSource(ImmutableList.of(new ArgusSplit()));
-            }
-            else if (MAPPED_METRICS_TABLE_NAME.equals(schemaTableName.getTableName())) {
-                validateMetricConstraint(handle.getConstraint());
-                ImmutableList<ArgusSplit> splitsList = getMetricQuerySplits(session, handle);
-                return new FixedSplitSource(splitsList);
-            }
-        }
-        throw new PrestoException(ARGUS_QUERY_ERROR, "Unsupported table: " + handle);
-    }
-
-    @VisibleForTesting
-    protected ImmutableList<ArgusSplit> getMetricQuerySplits(ConnectorSession session, ArgusTableHandle handle)
+    public static ImmutableList<ArgusSplit> getMetricQuerySplits(int numSplits, ArgusTableHandle handle)
     {
         Builder<ArgusSplit> splitsList = ImmutableList.builder();
         Map<ColumnHandle, Domain> domains = handle.getConstraint().getDomains().get();
@@ -96,7 +58,6 @@ public class ArgusSplitManager
             return ImmutableList.of(new ArgusSplit());
         }
 
-        int numSplits = ArgusSessionProperties.getTimeRangeSplits(session);
         Instant start = getDomainInstant(domains, START_COLUMN_HANDLE).orElse(Instant.now().minus(24, HOURS));
         Optional<Instant> end = getDomainInstant(domains, END_COLUMN_HANDLE);
 
@@ -116,7 +77,7 @@ public class ArgusSplitManager
         return splitsList.build();
     }
 
-    private Optional<Instant> getDomainInstant(Map<ColumnHandle, Domain> domains, ArgusColumnHandle handle)
+    public static Optional<Instant> getDomainInstant(Map<ColumnHandle, Domain> domains, ArgusColumnHandle handle)
     {
         Optional<Instant> instant = Optional.empty();
         Domain handleDomain = domains.get(handle);
@@ -126,7 +87,7 @@ public class ArgusSplitManager
         return instant;
     }
 
-    private void validateMetricConstraint(TupleDomain<ColumnHandle> constraint)
+    public static void validateMetricConstraint(TupleDomain<ColumnHandle> constraint)
     {
         Map<ColumnHandle, Domain> domains = constraint.getDomains().get();
         if (domains.get(EXPRESSION_HANDLE) != null) {
