@@ -141,16 +141,16 @@ public class PrestoTSDBService
         PreparedStatement preparedStmt = connection.prepareStatement(selectQuery);
         int index = 1;
 
-        preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getEndTimestamp()));
-        if (metricQuery.getDownsampler() != null) {
-            // endTimeParameter in getPrestoQuery
-            preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getEndTimestamp()));
-        }
-
         preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getStartTimestamp()));
         if (metricQuery.getDownsampler() != null) {
             // startTimeParameter in getPrestoQuery
             preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getStartTimestamp()));
+        }
+
+        preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getEndTimestamp()));
+        if (metricQuery.getDownsampler() != null) {
+            // endTimeParameter in getPrestoQuery
+            preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getEndTimestamp()));
         }
 
         if (!isNullOrEmpty(metricQuery.getScope()) && !metricQuery.getScope().equals("*")) {
@@ -236,9 +236,7 @@ public class PrestoTSDBService
         String tagWhereClause = tags.entrySet().stream()
                 .filter(entry -> !entry.getValue().equals("*"))
                 .map(entry -> MessageFormat.format(
-//                        " AND element_at(tags, ''{0}'') IN ({1})",
-                        " AND element_at(tags, ?) IN ({1})",
-                        entry.getKey(),
+                        " AND element_at(tags, ?) IN ({0})",
                         // convert "tagA|tagB|tagC" to "?,?,?"
                         Arrays.stream(entry.getValue().split("\\|")).map(value -> "?").collect(joining(","))))
                 .collect(joining(","));
@@ -317,8 +315,8 @@ public class PrestoTSDBService
                 groupByOrdinals,
                 scopeFilter,
                 metricFilter,
-                endTimeParameter,
-                startTimeParameter);
+                startTimeParameter,
+                endTimeParameter);
         return downsamplingSql;
     }
 
