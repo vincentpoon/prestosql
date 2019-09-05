@@ -13,16 +13,14 @@
  */
 package io.prestosql.plugin.argus.columnar;
 
-import io.prestosql.plugin.argus.ArgusTableHandle;
+import com.google.common.collect.ImmutableList;
+import io.prestosql.plugin.argus.ArgusSplit;
 import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.ConnectorSplitManager;
 import io.prestosql.spi.connector.ConnectorSplitSource;
 import io.prestosql.spi.connector.ConnectorTableHandle;
 import io.prestosql.spi.connector.ConnectorTransactionHandle;
 import io.prestosql.spi.connector.FixedSplitSource;
-
-import static io.prestosql.plugin.argus.ArgusSplitUtil.getMetricQuerySplits;
-import static io.prestosql.plugin.argus.ArgusSplitUtil.validateMetricConstraint;
 
 public class ArgusColumnarSplitManager
         implements ConnectorSplitManager
@@ -34,8 +32,8 @@ public class ArgusColumnarSplitManager
             ConnectorTableHandle table,
             SplitSchedulingStrategy splitSchedulingStrategy)
     {
-        ArgusTableHandle handle = (ArgusTableHandle) table;
-        validateMetricConstraint(handle.getConstraint());
-        return new FixedSplitSource(getMetricQuerySplits(1, handle));
+        // single split, we actually generate a SQL query against Presto,
+        // so it's the hive connector that actually generates the splits
+        return new FixedSplitSource(ImmutableList.of(new ArgusSplit()));
     }
 }

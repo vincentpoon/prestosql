@@ -13,10 +13,11 @@
  */
 package io.prestosql.plugin.argus.webservices;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.salesforce.dva.argus.entity.Metric;
 import com.salesforce.dva.argus.sdk.ArgusService;
 import com.salesforce.dva.argus.sdk.MetricService;
-import com.salesforce.dva.argus.sdk.entity.Metric;
 import com.salesforce.dva.argus.sdk.entity.MetricDiscoveryQuery;
 import com.salesforce.dva.argus.sdk.entity.MetricSchemaRecord;
 import com.salesforce.dva.argus.sdk.exceptions.TokenExpiredException;
@@ -111,7 +112,20 @@ public class ArgusWebServicesClient
     public List<Metric> getMetrics(ArgusTableHandle tableHandle, ArgusSplit split)
     {
         MetricService metricService = argusService.getMetricService();
-        return executeWithAuth(() -> metricService.getMetrics(singletonList(buildMetricsQuery(tableHandle, split))));
+        List<com.salesforce.dva.argus.sdk.entity.Metric> sdkMetrics = executeWithAuth(() -> metricService.getMetrics(singletonList(buildMetricsQuery(tableHandle, split))));
+        return toCoreMetrics(sdkMetrics);
+    }
+
+    private List<Metric> toCoreMetrics(List<com.salesforce.dva.argus.sdk.entity.Metric> sdkMetrics)
+    {
+        return sdkMetrics.stream()
+                .map(sdkMetric -> {
+                    Metric coreMetric = new Metric(sdkMetric.getScope(), sdkMetric.getMetric());
+                    coreMetric.setDatapoints(sdkMetric.getDatapoints());
+                    coreMetric.setTags(sdkMetric.getTags());
+                    return coreMetric;
+                })
+                .collect(ImmutableList.toImmutableList());
     }
 
     private String buildMetricsQuery(ArgusTableHandle tableHandle, ArgusSplit split)

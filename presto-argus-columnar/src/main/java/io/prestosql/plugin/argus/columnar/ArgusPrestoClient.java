@@ -15,7 +15,7 @@ package io.prestosql.plugin.argus.columnar;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.salesforce.dva.argus.sdk.entity.Metric;
+import com.salesforce.dva.argus.entity.Metric;
 import com.salesforce.dva.argus.sdk.entity.MetricDiscoveryQuery;
 import com.salesforce.dva.argus.sdk.entity.MetricSchemaRecord;
 import com.salesforce.dva.argus.service.TSDBService;
@@ -31,17 +31,25 @@ import io.prestosql.plugin.argus.ArgusSplit;
 import io.prestosql.plugin.argus.ArgusTableHandle;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.block.SingleMapBlock;
+import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.predicate.Domain;
+import io.prestosql.spi.predicate.Range;
 
 import javax.inject.Inject;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
-import static com.google.common.collect.ImmutableList.toImmutableList;
-import static io.prestosql.plugin.argus.ArgusErrorCode.ARGUS_QUERY_ERROR;
+import static io.prestosql.plugin.argus.ArgusSplitUtil.getEndTime;
+import static io.prestosql.plugin.argus.ArgusSplitUtil.getMetricRanges;
+import static io.prestosql.plugin.argus.ArgusSplitUtil.getScopeRanges;
+import static io.prestosql.plugin.argus.ArgusSplitUtil.getStartTime;
 import static io.prestosql.plugin.argus.MetadataUtil.AGGREGATOR;
 import static io.prestosql.plugin.argus.MetadataUtil.DOWNSAMPLER;
 import static io.prestosql.plugin.argus.MetadataUtil.EXPRESSION;
+import static io.prestosql.plugin.argus.MetadataUtil.METRIC_COLUMN_HANDLE;
+import static io.prestosql.plugin.argus.MetadataUtil.SCOPE_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.TAGS;
 import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
@@ -68,26 +76,25 @@ public class ArgusPrestoClient
     @Override
     public List<Metric> getMetrics(ArgusTableHandle tableHandle, ArgusSplit split)
     {
-        MetricQuery metricsQuery = buildMetricsQuery(tableHandle, split);
-        List<com.salesforce.dva.argus.entity.Metric> metrics = tsdbService.getMetrics(ImmutableList.of(metricsQuery)).get(metricsQuery);
-        return metrics.stream().map(ArgusPrestoClient::toSdkMetric).collect(toImmutableList());
+        MetricQuery metricsQuery = buildMetricsQuery(tableHandle);
+        return tsdbService.getMetrics(ImmutableList.of(metricsQuery)).get(metricsQuery);
     }
 
-    private static Metric toSdkMetric(com.salesforce.dva.argus.entity.Metric coreMetric)
+    private MetricQuery buildMetricsQuery(ArgusTableHandle tableHandle)
     {
-        Metric sdkMetric = new Metric();
-        sdkMetric.setScope(coreMetric.getScope());
-        sdkMetric.setMetric(coreMetric.getMetric());
-        sdkMetric.setDatapoints(coreMetric.getDatapoints());
-        sdkMetric.setTags(coreMetric.getTags());
-        return sdkMetric;
-    }
+        Map<ColumnHandle, Domain> domains = tableHandle.getConstraint().getDomains().get();
+        long startTimestamp = getStartTime(domains).toEpochMilli();
+        Long endTimestamp = getEndTime(domains).map(endInstant -> endInstant.toEpochMilli()).orElse(null);
+        String scope = null;
+        if (domains.containsKey(SCOPE_COLUMN_HANDLE)) {
+            scope = toDelimitedString(getScopeRanges(domains));
+        }
+        String metric = null;
+        if (domains.containsKey(METRIC_COLUMN_HANDLE)) {
+            metric = toDelimitedString(getMetricRanges(domains));
+        }
+        ArgusColumnarMetricQuery query = new ArgusColumnarMetricQuery(scope, metric, null, startTimestamp, endTimestamp);
 
-    private MetricQuery buildMetricsQuery(ArgusTableHandle tableHandle, ArgusSplit split)
-    {
-        long startTimestamp = split.getStart().orElseThrow(() -> new PrestoException(ARGUS_QUERY_ERROR, "Start time of split not found:" + tableHandle)).toEpochMilli();
-        Long endTimestamp = split.getEnd().isPresent() ? split.getEnd().get().toEpochMilli() : null;
-        MetricQuery query = new MetricQuery(split.getScope(), split.getMetric(), null, startTimestamp, endTimestamp);
         for (ArgusColumnHandle column : metadata.getMappedMetricsTable().getColumns()) {
             Domain domain = tableHandle.getConstraint().getDomains().get().get(column);
             if (domain == null) {
@@ -115,6 +122,14 @@ public class ArgusPrestoClient
             }
         }
         return query;
+    }
+
+    private String toDelimitedString(List<Range> scopeRanges)
+    {
+        return scopeRanges.stream()
+                .map(range -> (Slice) range.getSingleValue())
+                .map(slice -> slice.toStringUtf8())
+                .collect(Collectors.joining("|"));
     }
 
     private Aggregator getDownsampler(String token)

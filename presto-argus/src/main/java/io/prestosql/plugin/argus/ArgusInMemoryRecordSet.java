@@ -11,13 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.prestosql.spi.connector;
+package io.prestosql.plugin.argus;
 
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 import io.prestosql.spi.block.Block;
-import io.prestosql.spi.type.ArrayType;
-import io.prestosql.spi.type.RowType;
+import io.prestosql.spi.connector.ColumnMetadata;
+import io.prestosql.spi.connector.ConnectorTableMetadata;
+import io.prestosql.spi.connector.RecordCursor;
+import io.prestosql.spi.connector.RecordSet;
 import io.prestosql.spi.type.Type;
 
 import java.util.ArrayList;
@@ -39,13 +41,13 @@ import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
-public class InMemoryRecordSet
+public class ArgusInMemoryRecordSet
         implements RecordSet
 {
     private final List<Type> types;
     private final Iterable<? extends List<?>> records;
 
-    public InMemoryRecordSet(Collection<? extends Type> types, Iterable<? extends List<?>> records)
+    public ArgusInMemoryRecordSet(Collection<? extends Type> types, Iterable<? extends List<?>> records)
     {
         this.types = Collections.unmodifiableList(new ArrayList<>(types));
         this.records = records;
@@ -235,11 +237,15 @@ public class InMemoryRecordSet
                     checkArgument(value instanceof Slice,
                             "Expected value %d to be an instance of Slice, but is a %s", i, value.getClass().getSimpleName());
                 }
-                else if (type instanceof ArrayType) {
+                else if (type.getTypeSignature().getBase().equals("array")) {
                     checkArgument(value instanceof Block,
                             "Expected value %d to be an instance of Block, but is a %s", i, value.getClass().getSimpleName());
                 }
-                else if (type instanceof RowType) {
+                else if (type.getTypeSignature().getBase().equals("row")) {
+                    checkArgument(value instanceof Block,
+                            "Expected value %d to be an instance of Block, but is a %s", i, value.getClass().getSimpleName());
+                }
+                else if (type.getTypeSignature().getBase().equals("map")) {
                     checkArgument(value instanceof Block,
                             "Expected value %d to be an instance of Block, but is a %s", i, value.getClass().getSimpleName());
                 }
@@ -252,9 +258,9 @@ public class InMemoryRecordSet
             return this;
         }
 
-        public InMemoryRecordSet build()
+        public ArgusInMemoryRecordSet build()
         {
-            return new InMemoryRecordSet(types, records);
+            return new ArgusInMemoryRecordSet(types, records);
         }
     }
 

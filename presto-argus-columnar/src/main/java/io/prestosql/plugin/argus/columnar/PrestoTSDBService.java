@@ -42,14 +42,16 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collector;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.salesforce.dva.argus.service.tsdb.MetricQuery.Aggregator.NONE;
@@ -115,7 +117,6 @@ public class PrestoTSDBService
         return result;
     }
 
-    @SuppressWarnings("unchecked")
     List<Metric> selectMetrics(MetricQuery metricQuery)
     {
         Map<String, Metric> metrics = new HashMap<>();
@@ -123,60 +124,93 @@ public class PrestoTSDBService
         logger.debug("Executing query: " + selectQuery);
         try (Connection connection = prestoDriver.connect(prestoJDBCUrl, connectionProperties)) {
             connection.unwrap(PrestoConnection.class).setTimeZoneId("UTC");
-            PreparedStatement preparedStmt = connection.prepareStatement(selectQuery);
-            int index = 1;
-            preparedStmt.setString(index++, metricQuery.getScope());
-            preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getEndTimestamp()));
-            if (metricQuery.getDownsampler() != null) {
-                // endTimeParameter in getPrestoQuery
-                preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getEndTimestamp()));
-            }
-            preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getStartTimestamp()));
-            if (metricQuery.getDownsampler() != null) {
-                // startTimeParameter in getPrestoQuery
-                preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getStartTimestamp()));
-            }
-            if (metricQuery.getMetric() != null) {
-                preparedStmt.setString(index++, metricQuery.getMetric());
-            }
-
+            PreparedStatement preparedStmt = prepareStatement(metricQuery, selectQuery, connection);
             ResultSet rs = preparedStmt.executeQuery();
-
-            while (rs.next()) {
-                Double value = rs.getDouble("value");
-                long timestamp = rs.getTimestamp("time").getTime();
-                String metricName = rs.getString("metric");
-
-                Map<String, String> tags;
-                if (hasNoAggregator(metricQuery) && metricQuery.getTags().keySet().isEmpty()) {
-                    tags = (Map<String, String>) rs.getObject("tags");
-                }
-                else {
-                    tags = new HashMap<>();
-                    for (String tagKey : metricQuery.getTags().keySet()) {
-                        tags.put(tagKey, rs.getString(tagKey));
-                    }
-                }
-
-                Map<Long, Double> datapoints = new HashMap<>();
-                datapoints.put(timestamp, value);
-                String identifier = metricQuery.getScope() + metricName + tags.toString();
-                if (metrics.containsKey(identifier)) {
-                    metrics.get(identifier).addDatapoints(datapoints);
-                }
-                else {
-                    Metric metric = new Metric(metricQuery.getScope(), metricName);
-                    metric.setTags(tags);
-                    metric.setDatapoints(datapoints);
-                    metrics.put(identifier, metric);
-                }
-            }
+            readResults(metricQuery, metrics, rs);
         }
         catch (SQLException sqle) {
-            throw new PrestoException(ArgusErrorCode.ARGUS_QUERY_ERROR, "Failed to read data from Presto.", sqle);
+            throw new PrestoException(ArgusErrorCode.ARGUS_QUERY_ERROR, "Failed to read data from Presto. Query: " + selectQuery, sqle);
         }
 
         return new ArrayList<>(metrics.values());
+    }
+
+    private PreparedStatement prepareStatement(MetricQuery metricQuery, String selectQuery, Connection connection)
+            throws SQLException
+    {
+        PreparedStatement preparedStmt = connection.prepareStatement(selectQuery);
+        int index = 1;
+
+        preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getEndTimestamp()));
+        if (metricQuery.getDownsampler() != null) {
+            // endTimeParameter in getPrestoQuery
+            preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getEndTimestamp()));
+        }
+
+        preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getStartTimestamp()));
+        if (metricQuery.getDownsampler() != null) {
+            // startTimeParameter in getPrestoQuery
+            preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getStartTimestamp()));
+        }
+
+        if (!isNullOrEmpty(metricQuery.getScope()) && !metricQuery.getScope().equals("*")) {
+            for (String scope : metricQuery.getScope().split("\\|")) {
+                preparedStmt.setString(index++, scope);
+            }
+        }
+
+        if (!isNullOrEmpty(metricQuery.getMetric()) && !metricQuery.getMetric().equals("*")) {
+            for (String metric : metricQuery.getMetric().split("\\|")) {
+                preparedStmt.setString(index++, metric);
+            }
+        }
+
+        if (!metricQuery.getTags().isEmpty()) {
+            for (Entry<String, String> entry : metricQuery.getTags().entrySet()) {
+                preparedStmt.setString(index++, entry.getKey());
+                for (String orValue : entry.getValue().split("\\|")) {
+                    preparedStmt.setString(index++, orValue);
+                }
+            }
+        }
+        return preparedStmt;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void readResults(MetricQuery metricQuery, Map<String, Metric> metrics, ResultSet rs)
+            throws SQLException
+    {
+        while (rs.next()) {
+            String scope = rs.getString("scope");
+            String metricName = rs.getString("metric");
+            Double value = rs.getDouble("value");
+            long timestamp = rs.getTimestamp("time").getTime();
+
+            Map<String, String> tags;
+
+            if (hasNoAggregator(metricQuery) && metricQuery.getTags().keySet().isEmpty()) {
+                tags = (Map<String, String>) rs.getObject("tags");
+            }
+            else {
+                tags = new HashMap<>();
+                for (String tagKey : metricQuery.getTags().keySet()) {
+                    tags.put(tagKey, rs.getString(tagKey));
+                }
+            }
+
+            Map<Long, Double> datapoints = new HashMap<>();
+            datapoints.put(timestamp, value);
+            String identifier = scope + metricName + tags.toString();
+            if (metrics.containsKey(identifier)) {
+                metrics.get(identifier).addDatapoints(datapoints);
+            }
+            else {
+                Metric metric = new Metric(scope, metricName);
+                metric.setTags(tags);
+                metric.setDatapoints(datapoints);
+                metrics.put(identifier, metric);
+            }
+        }
     }
 
     private Timestamp getUtcTimestamp(Long endTimestamp)
@@ -188,9 +222,13 @@ public class PrestoTSDBService
     @VisibleForTesting
     protected static String getPrestoQuery(MetricQuery query, String metricsTableName)
     {
+        String scopeFilter = "";
+        if (!isNullOrEmpty(query.getScope()) && !query.getScope().equals("*")) {
+            scopeFilter = "AND scope IN " + toParamString(query.getScope());
+        }
         String metricFilter = "";
-        if (query.getMetric() != null) {
-            metricFilter = " AND metric = ?";
+        if (!isNullOrEmpty(query.getMetric()) && !query.getMetric().equals("*")) {
+            metricFilter = "AND metric IN " + toParamString(query.getMetric());
         }
         String agg = convertArgusAggregatorToPrestoAggregator(query.getAggregator());
 
@@ -198,9 +236,11 @@ public class PrestoTSDBService
         String tagWhereClause = tags.entrySet().stream()
                 .filter(entry -> !entry.getValue().equals("*"))
                 .map(entry -> MessageFormat.format(
-                        " AND element_at(tags, ''{0}'') IN ({1})",
+//                        " AND element_at(tags, ''{0}'') IN ({1})",
+                        " AND element_at(tags, ?) IN ({1})",
                         entry.getKey(),
-                        Stream.of(entry.getValue().split("\\|")).map(singleValue -> "'" + singleValue + "'").collect(joining(","))))
+                        // convert "tagA|tagB|tagC" to "?,?,?"
+                        Arrays.stream(entry.getValue().split("\\|")).map(value -> "?").collect(joining(","))))
                 .collect(joining(","));
         Collector<CharSequence, ?, String> tagsJoiner = joining(",", "", tags.size() > 0 ? "," : "");
         String aliasedMapCols = tags.keySet().stream()
@@ -214,17 +254,17 @@ public class PrestoTSDBService
         if (hasNoAggregator(query)) {
             groupByClause = "";
             if (tags.isEmpty()) {
-                aliasedMapCols = "tags, ";
-                groupByOrdinals = "1, ";
+                aliasedMapCols = " tags, " + aliasedMapCols;
+                groupByOrdinals = "1, " + groupByOrdinals;
             }
         }
 
         String selectSql = MessageFormat.format("SELECT {0} {1}(value) value, time, scope, metric FROM {2}"
-                + " WHERE scope = ? AND time <= ? AND time >= ? {3} {4}"
-                + groupByClause, aliasedMapCols, agg, metricsTableName, metricFilter, tagWhereClause);
+                        + " WHERE time >= ? AND time <= ? {3} {4} {5} {6}",
+                aliasedMapCols, agg, metricsTableName, scopeFilter, metricFilter, tagWhereClause, groupByClause);
 
         if (query.getDownsampler() != null) {
-            String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, metricFilter, tagWhereClause, aliasedMapCols, groupByOrdinals);
+            String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, scopeFilter, metricFilter, tagWhereClause, aliasedMapCols, groupByOrdinals);
             if (query.getDownsampler().equals(query.getAggregator())) {
                 return downsamplingSql;
             }
@@ -232,15 +272,21 @@ public class PrestoTSDBService
             if (hasNoAggregator(query) && tags.isEmpty()) {
                 tagKeyCols = "tags,";
             }
-            selectSql = MessageFormat.format(" WITH downsampled AS ({2}) SELECT {1} {0}(value) AS value, time as \"time\", scope, metric FROM downsampled "
-                            + groupByClause,
-                    agg, tagKeyCols, downsamplingSql);
+            selectSql = MessageFormat.format(" WITH downsampled AS ({2}) SELECT {1} {0}(value) AS value, time as \"time\", scope, metric FROM downsampled {3}",
+                    agg, tagKeyCols, downsamplingSql, groupByClause);
         }
 
         return selectSql;
     }
 
-    private static String buildDownsamplingQuery(MetricQuery query, String metricsTableName, String metricFilter, String tagWhereClause, String aliasedMapCols, String groupByOrdinals)
+    private static String toParamString(String delimited)
+    {
+        return Arrays.stream(delimited.split("\\|"))
+                .map(scope -> "?")
+                .collect(Collectors.joining(",", "(", ")"));
+    }
+
+    private static String buildDownsamplingQuery(MetricQuery query, String metricsTableName, String scopeFilter, String metricFilter, String tagWhereClause, String aliasedMapCols, String groupByOrdinals)
     {
         String downsamplingAgg = convertArgusAggregatorToPrestoAggregator(query.getDownsampler());
         long downsamplingPeriodSec = TimeUnit.SECONDS.convert(query.getDownsamplingPeriod(), TimeUnit.MILLISECONDS);
@@ -261,7 +307,7 @@ public class PrestoTSDBService
         String downsamplingSql = MessageFormat.format(
                 "SELECT {2} {0}(value) value, scope, metric, {1} time "
                         + "FROM {3} "
-                        + "WHERE scope = ? AND time < {7} AND time >= {8} {6} {4} "
+                        + "WHERE time >= {8} AND time < {9} {6} {7} {4} "
                         + "GROUP BY {5} scope, metric, {1} ",
                 downsamplingAgg,
                 timeDownsampleFunction,
@@ -269,6 +315,7 @@ public class PrestoTSDBService
                 metricsTableName,
                 tagWhereClause,
                 groupByOrdinals,
+                scopeFilter,
                 metricFilter,
                 endTimeParameter,
                 startTimeParameter);

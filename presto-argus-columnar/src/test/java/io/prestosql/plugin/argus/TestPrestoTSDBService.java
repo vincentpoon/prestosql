@@ -13,15 +13,6 @@
  */
 package io.prestosql.plugin.argus;
 
-import com.salesforce.dva.argus.entity.Metric;
-import com.salesforce.dva.argus.sdk.entity.MetricDiscoveryQuery;
-import com.salesforce.dva.argus.sdk.entity.MetricSchemaRecord;
-
-import java.util.List;
-
-public interface ArgusClient
+public class TestPrestoTSDBService
 {
-    List<MetricSchemaRecord> listMetricSchemaRecords(MetricDiscoveryQuery discoveryQuery);
-
-    List<Metric> getMetrics(ArgusTableHandle tableHandle, ArgusSplit split);
 }

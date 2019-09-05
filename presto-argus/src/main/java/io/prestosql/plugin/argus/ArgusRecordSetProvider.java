@@ -15,7 +15,7 @@ package io.prestosql.plugin.argus;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
-import com.salesforce.dva.argus.sdk.entity.Metric;
+import com.salesforce.dva.argus.entity.Metric;
 import com.salesforce.dva.argus.sdk.entity.MetricDiscoveryQuery;
 import com.salesforce.dva.argus.sdk.entity.MetricSchemaRecord;
 import io.airlift.slice.Slice;
@@ -28,7 +28,6 @@ import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.ConnectorSplit;
 import io.prestosql.spi.connector.ConnectorTableHandle;
 import io.prestosql.spi.connector.ConnectorTransactionHandle;
-import io.prestosql.spi.connector.InMemoryRecordSet;
 import io.prestosql.spi.connector.RecordSet;
 import io.prestosql.spi.predicate.Domain;
 import io.prestosql.spi.type.Type;
@@ -121,7 +120,7 @@ public class ArgusRecordSetProvider
         MetricDiscoveryQuery discoveryQuery = buildDiscoveryQuery(discoveryTable);
         List<MetricSchemaRecord> metricSchemaRecords = argusClient.listMetricSchemaRecords(discoveryQuery);
         Collection<Type> columnTypes = handles.stream().map(ArgusColumnHandle::getColumnType).collect(toImmutableList());
-        InMemoryRecordSet.Builder recordSetBuilder = InMemoryRecordSet.builder(columnTypes);
+        ArgusInMemoryRecordSet.Builder recordSetBuilder = ArgusInMemoryRecordSet.builder(columnTypes);
         for (MetricSchemaRecord record : metricSchemaRecords) {
             Builder<Object> values = ImmutableList.builder();
             for (ArgusColumnHandle columnHandle : handles) {
@@ -194,7 +193,7 @@ public class ArgusRecordSetProvider
     {
         List<Metric> metrics = argusClient.getMetrics(tableHandle, split);
         Collection<Type> columnTypes = handles.stream().map(ArgusColumnHandle::getColumnType).collect(toImmutableList());
-        InMemoryRecordSet.Builder recordSetBuilder = InMemoryRecordSet.builder(columnTypes);
+        ArgusInMemoryRecordSet.Builder recordSetBuilder = ArgusInMemoryRecordSet.builder(columnTypes);
         for (Metric metric : metrics) {
             List<Object> values = new ArrayList<>();
             for (ArgusColumnHandle columnHandle : handles) {
