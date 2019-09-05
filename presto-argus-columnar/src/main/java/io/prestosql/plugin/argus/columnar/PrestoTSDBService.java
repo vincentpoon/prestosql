@@ -188,7 +188,7 @@ public class PrestoTSDBService
 
             Map<String, String> tags;
 
-            if (hasNoAggregator(metricQuery) && metricQuery.getTags().keySet().isEmpty()) {
+            if (hasNoAggregator(metricQuery)) {
                 tags = (Map<String, String>) rs.getObject("tags");
             }
             else {
@@ -241,6 +241,8 @@ public class PrestoTSDBService
                         Arrays.stream(entry.getValue().split("\\|")).map(value -> "?").collect(joining(","))))
                 .collect(joining(","));
         Collector<CharSequence, ?, String> tagsJoiner = joining(",", "", tags.size() > 0 ? "," : "");
+        // TODO no way to provide aliased col name as a param, since they must be provided before param binding,
+        // so need find another way to do this
         String aliasedMapCols = tags.keySet().stream()
                 .map(tagKey -> MessageFormat.format("tags[''{0}''] as \"{0}\"", tagKey))
                 .collect(tagsJoiner);
@@ -251,10 +253,8 @@ public class PrestoTSDBService
         String groupByClause = MessageFormat.format(" GROUP BY {0} time, scope, metric", groupByOrdinals);
         if (hasNoAggregator(query)) {
             groupByClause = "";
-            if (tags.isEmpty()) {
-                aliasedMapCols = " tags, " + aliasedMapCols;
-                groupByOrdinals = "1, " + groupByOrdinals;
-            }
+            aliasedMapCols = " tags, ";
+            groupByOrdinals = "1, ";
         }
 
         String selectSql = MessageFormat.format("SELECT {0} {1}(value) value, time, scope, metric FROM {2}"
@@ -267,7 +267,7 @@ public class PrestoTSDBService
                 return downsamplingSql;
             }
             String tagKeyCols = tags.keySet().stream().map(tagKey -> "\"" + tagKey + "\"").collect(tagsJoiner);
-            if (hasNoAggregator(query) && tags.isEmpty()) {
+            if (hasNoAggregator(query)) {
                 tagKeyCols = "tags,";
             }
             selectSql = MessageFormat.format(" WITH downsampled AS ({2}) SELECT {1} {0}(value) AS value, time as \"time\", scope, metric FROM downsampled {3}",
