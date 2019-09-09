@@ -13,7 +13,6 @@
  */
 package io.prestosql.plugin.argus.columnar;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.salesforce.dva.argus.entity.Annotation;
 import com.salesforce.dva.argus.entity.Histogram;
 import com.salesforce.dva.argus.entity.Metric;
@@ -120,7 +119,7 @@ public class PrestoTSDBService
     List<Metric> selectMetrics(MetricQuery metricQuery)
     {
         Map<String, Metric> metrics = new HashMap<>();
-        String selectQuery = getPrestoQuery(metricQuery, metricsTableName);
+        String selectQuery = getPrestoQuery(metricQuery);
         logger.debug("Executing query: " + selectQuery);
         try (Connection connection = prestoDriver.connect(prestoJDBCUrl, connectionProperties)) {
             connection.unwrap(PrestoConnection.class).setTimeZoneId("UTC");
@@ -219,8 +218,7 @@ public class PrestoTSDBService
         return endTs;
     }
 
-    @VisibleForTesting
-    protected static String getPrestoQuery(MetricQuery query, String metricsTableName)
+    protected String getPrestoQuery(MetricQuery query)
     {
         String scopeFilter = "";
         if (!isNullOrEmpty(query.getScope()) && !query.getScope().equals("*")) {

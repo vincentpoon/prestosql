@@ -50,8 +50,14 @@
         </artifact>
     </artifactSet>
 
-    <artifactSet to="plugin/argus">
-        <artifact id="${project.groupId}:presto-argus:zip:${project.version}">
+    <artifactSet to="plugin/argus-columnar">
+        <artifact id="${project.groupId}:presto-argus-columnar:zip:${project.version}">
+            <unpack />
+        </artifact>
+    </artifactSet>
+
+    <artifactSet to="plugin/argus-webservices">
+        <artifact id="${project.groupId}:presto-argus-webservices:zip:${project.version}">
             <unpack />
         </artifact>
     </artifactSet>

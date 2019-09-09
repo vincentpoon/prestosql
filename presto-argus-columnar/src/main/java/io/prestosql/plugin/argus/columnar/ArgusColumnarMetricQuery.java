@@ -16,12 +16,18 @@ package io.prestosql.plugin.argus.columnar;
 import com.salesforce.dva.argus.service.tsdb.MetricQuery;
 
 import java.util.Map;
+import java.util.OptionalLong;
 
-// This differs from the parent class in that it allows for null scope/metric values
+/**
+ * This differs from the parent class in that it allows for null scope/metric values.
+ * It also allows for setting a limit, which the Argus API for metrics doesn't provide
+ */
 public class ArgusColumnarMetricQuery
         extends MetricQuery
 {
-    public ArgusColumnarMetricQuery(String scope, String metric, Map<String, String> tags, Long startTimestamp, Long endTimestamp)
+    OptionalLong limit;
+
+    public ArgusColumnarMetricQuery(String scope, String metric, Map<String, String> tags, Long startTimestamp, Long endTimestamp, OptionalLong limit)
     {
         _startTimestamp = startTimestamp;
         _endTimestamp = endTimestamp;
@@ -30,5 +36,16 @@ public class ArgusColumnarMetricQuery
         if (tags != null) {
             setTags(tags);
         }
+        this.limit = limit;
+    }
+
+    public OptionalLong getLimit()
+    {
+        return limit;
+    }
+
+    public void setLimit(long limit)
+    {
+        this.limit = OptionalLong.of(limit);
     }
 }

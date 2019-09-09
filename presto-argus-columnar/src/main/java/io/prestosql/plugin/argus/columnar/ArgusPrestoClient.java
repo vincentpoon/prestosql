@@ -87,13 +87,13 @@ public class ArgusPrestoClient
         Long endTimestamp = getEndTime(domains).map(endInstant -> endInstant.toEpochMilli()).orElse(null);
         String scope = null;
         if (domains.containsKey(SCOPE_COLUMN_HANDLE)) {
-            scope = toDelimitedString(getScopeRanges(domains));
+            scope = toArgusOrString(getScopeRanges(domains));
         }
         String metric = null;
         if (domains.containsKey(METRIC_COLUMN_HANDLE)) {
-            metric = toDelimitedString(getMetricRanges(domains));
+            metric = toArgusOrString(getMetricRanges(domains));
         }
-        ArgusColumnarMetricQuery query = new ArgusColumnarMetricQuery(scope, metric, null, startTimestamp, endTimestamp);
+        ArgusColumnarMetricQuery query = new ArgusColumnarMetricQuery(scope, metric, null, startTimestamp, endTimestamp, tableHandle.getLimit());
 
         for (ArgusColumnHandle column : metadata.getMappedMetricsTable().getColumns()) {
             Domain domain = tableHandle.getConstraint().getDomains().get().get(column);
@@ -124,7 +124,8 @@ public class ArgusPrestoClient
         return query;
     }
 
-    private String toDelimitedString(List<Range> scopeRanges)
+    // Argus queries use | to provide multiple values
+    private String toArgusOrString(List<Range> scopeRanges)
     {
         return scopeRanges.stream()
                 .map(range -> (Slice) range.getSingleValue())
