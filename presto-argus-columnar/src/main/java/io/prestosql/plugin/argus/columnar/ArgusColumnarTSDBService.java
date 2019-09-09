@@ -17,6 +17,7 @@ import com.salesforce.dva.argus.service.tsdb.MetricQuery;
 
 import javax.inject.Inject;
 
+import java.util.List;
 import java.util.OptionalLong;
 
 /**
@@ -42,5 +43,12 @@ public class ArgusColumnarTSDBService
             return prestoQuery + " LIMIT " + limit.getAsLong();
         }
         return prestoQuery;
+    }
+
+    @Override
+    protected List<TSDBColumn> getProjectedColumns(MetricQuery query)
+    {
+        ArgusColumnarMetricQuery columnarQuery = (ArgusColumnarMetricQuery) query;
+        return columnarQuery.getProjection().orElse(ALL_COLUMNS);
     }
 }

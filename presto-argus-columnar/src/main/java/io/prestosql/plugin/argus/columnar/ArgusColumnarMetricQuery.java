@@ -14,8 +14,11 @@
 package io.prestosql.plugin.argus.columnar;
 
 import com.salesforce.dva.argus.service.tsdb.MetricQuery;
+import io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 /**
@@ -26,6 +29,7 @@ public class ArgusColumnarMetricQuery
         extends MetricQuery
 {
     OptionalLong limit;
+    Optional<List<TSDBColumn>> projection = Optional.empty();
 
     public ArgusColumnarMetricQuery(String scope, String metric, Map<String, String> tags, Long startTimestamp, Long endTimestamp, OptionalLong limit)
     {
@@ -47,5 +51,15 @@ public class ArgusColumnarMetricQuery
     public void setLimit(long limit)
     {
         this.limit = OptionalLong.of(limit);
+    }
+
+    public Optional<List<TSDBColumn>> getProjection()
+    {
+        return projection;
+    }
+
+    public void setProjection(List<TSDBColumn> projection)
+    {
+        this.projection = Optional.of(projection);
     }
 }

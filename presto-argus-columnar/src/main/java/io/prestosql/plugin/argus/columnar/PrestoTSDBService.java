@@ -13,6 +13,8 @@
  */
 package io.prestosql.plugin.argus.columnar;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.salesforce.dva.argus.entity.Annotation;
 import com.salesforce.dva.argus.entity.Histogram;
 import com.salesforce.dva.argus.entity.Metric;
@@ -54,6 +56,12 @@ import java.util.stream.IntStream;
 
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.salesforce.dva.argus.service.tsdb.MetricQuery.Aggregator.NONE;
+import static io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn.METRIC;
+import static io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn.SCOPE;
+import static io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn.TAGS;
+import static io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn.TIME;
+import static io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn.VALUE;
+import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 
@@ -233,13 +241,14 @@ public class PrestoTSDBService
         String tagsFilter = tags.entrySet().stream()
                 .filter(entry -> !entry.getValue().equals("*"))
                 .map(entry -> MessageFormat.format(
-                        " AND element_at(tags, ?) IN ({0})",
+                        " AND element_at({0}, ?) IN ({1})",
+                        TAGS,
                         // convert "tagA|tagB|tagC" to "?,?,?"
                         Arrays.stream(entry.getValue().split("\\|")).map(value -> "?").collect(joining(","))))
                 .collect(joining(","));
         Collector<CharSequence, ?, String> tagsJoiner = joining(",", "", tags.size() > 0 ? "," : "");
         // TODO no way to provide aliased col name as a param, since they must be provided before param binding,
-        // so need find another way to do this
+        // so need to find another way to do this
         String aliasedMapCols = tags.keySet().stream()
                 .map(tagKey -> MessageFormat.format("tags[''{0}''] as \"{0}\"", tagKey))
                 .collect(tagsJoiner);
@@ -250,13 +259,18 @@ public class PrestoTSDBService
         String groupByClause = MessageFormat.format(" GROUP BY {0} time, scope, metric", groupByOrdinals);
         if (hasNoAggregator(query)) {
             groupByClause = "";
-            aliasedMapCols = " tags, ";
+            aliasedMapCols = TAGS.toString();
             groupByOrdinals = "1, ";
         }
 
-        String selectSql = MessageFormat.format("SELECT {0} {1}(value) value, time, scope, metric FROM {2}"
-                        + " WHERE time >= ? AND time <= ? {3} {4} {5} {6}",
-                aliasedMapCols, agg, metricsTableName, scopeFilter, metricFilter, tagsFilter, groupByClause);
+        Map<TSDBColumn, String> expressions = ImmutableMap.of(
+                TAGS, aliasedMapCols,
+                VALUE, aggregatedValueProjection(agg));
+        String projection = buildProjection(query, expressions);
+
+        String selectSql = MessageFormat.format("SELECT {0} FROM {1}"
+                        + " WHERE time >= ? AND time <= ? {2} {3} {4} {5}",
+                projection, metricsTableName, scopeFilter, metricFilter, tagsFilter, groupByClause);
 
         if (query.getDownsampler() != null) {
             String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, scopeFilter, metricFilter, tagsFilter, aliasedMapCols, groupByOrdinals);
@@ -265,13 +279,23 @@ public class PrestoTSDBService
             }
             String tagKeyCols = tags.keySet().stream().map(tagKey -> "\"" + tagKey + "\"").collect(tagsJoiner);
             if (hasNoAggregator(query)) {
-                tagKeyCols = "tags,";
+                tagKeyCols = TAGS.toString();
             }
-            selectSql = MessageFormat.format(" WITH downsampled AS ({0}) SELECT {1} {2}(value) AS value, time as \"time\", scope, metric FROM downsampled {3}",
-                    downsamplingSql, tagKeyCols, agg, groupByClause);
+
+            expressions = ImmutableMap.of(
+                    TAGS, tagKeyCols,
+                    VALUE, aggregatedValueProjection(agg));
+            projection = buildProjection(query, expressions);
+            selectSql = MessageFormat.format(" WITH downsampled AS ({0}) SELECT {1} FROM downsampled {2}",
+                    downsamplingSql, projection, groupByClause);
         }
 
         return selectSql;
+    }
+
+    private static String aggregatedValueProjection(String agg)
+    {
+        return MessageFormat.format("{0}({1}) AS {1}", agg, VALUE);
     }
 
     private static String toParamString(String delimited)
@@ -281,7 +305,7 @@ public class PrestoTSDBService
                 .collect(Collectors.joining(",", "(", ")"));
     }
 
-    private static String buildDownsamplingQuery(MetricQuery query, String metricsTableName, String scopeFilter, String metricFilter, String tagsFilter, String aliasedMapCols, String groupByOrdinals)
+    private String buildDownsamplingQuery(MetricQuery query, String metricsTableName, String scopeFilter, String metricFilter, String tagsFilter, String aliasedMapCols, String groupByOrdinals)
     {
         String downsamplingAgg = convertArgusAggregatorToPrestoAggregator(query.getDownsampler());
         long downsamplingPeriodSec = TimeUnit.SECONDS.convert(query.getDownsamplingPeriod(), TimeUnit.MILLISECONDS);
@@ -296,25 +320,45 @@ public class PrestoTSDBService
         // Specifying 'tags' groupBy here makes it so we don't aggregate.
         // But if downsampler=aggregator, we *do* want the aggregating to happen, as an optimization to do everything in one query
         if (!query.getDownsampler().equals(query.getAggregator()) && isNullOrEmpty(aliasedMapCols)) {
-            aliasedMapCols = "tags,";
+            aliasedMapCols = TAGS.toString();
             groupByOrdinals = "1,";
         }
+
+        Map<TSDBColumn, String> expressions = ImmutableMap.of(
+                TAGS, aliasedMapCols,
+                VALUE, aggregatedValueProjection(downsamplingAgg),
+                TIME, timeDownsampleFunction + " AS " + TIME.toString());
+        String projection = buildProjection(query, expressions);
+
         String downsamplingSql = MessageFormat.format(
-                "SELECT {0} {1}(value) value, scope, metric, {2} time "
-                        + "FROM {3} "
-                        + "WHERE time >= {4} AND time < {5} {6} {7} {8} "
-                        + "GROUP BY {9} scope, metric, {2} ",
-                aliasedMapCols,
-                downsamplingAgg,
-                timeDownsampleFunction,
+                "SELECT {0} "
+                        + "FROM {1} "
+                        + "WHERE time >= {2} AND time < {3} {4} {5} {6} "
+                        + "GROUP BY {7} scope, metric, {8} ",
+                projection,
                 metricsTableName,
                 startTimeParameter,
                 endTimeParameter,
                 scopeFilter,
                 metricFilter,
                 tagsFilter,
-                groupByOrdinals);
+                groupByOrdinals,
+                timeDownsampleFunction);
         return downsamplingSql;
+    }
+
+    private String buildProjection(MetricQuery query, Map<TSDBColumn, String> expressions)
+    {
+        return getProjectedColumns(query).stream()
+                .map(columnName -> expressions.containsKey(columnName) ? expressions.get(columnName) : columnName.name().toLowerCase(ENGLISH))
+                .filter(name -> name.length() > 0)
+                .collect(joining(","));
+    }
+
+    // Argus doesn't support projection, so return all columns by default
+    protected List<TSDBColumn> getProjectedColumns(MetricQuery query)
+    {
+        return ALL_COLUMNS;
     }
 
     private static boolean hasNoAggregator(MetricQuery query)
@@ -375,6 +419,20 @@ public class PrestoTSDBService
     public void putHistograms(List<Histogram> histograms)
     {
         throw new UnsupportedOperationException("putHistograms not implemented");
+    }
+
+    // order currently matters for TAGS, since it's referenced in groupByOrdinals
+    public static final List<TSDBColumn> ALL_COLUMNS = ImmutableList.of(TAGS, SCOPE, METRIC, TIME, VALUE);
+
+    public static enum TSDBColumn
+    {
+        TAGS, SCOPE, METRIC, TIME, VALUE;
+
+        @Override
+        public String toString()
+        {
+            return super.toString().toLowerCase(ENGLISH);
+        }
     }
 
     public enum Property
