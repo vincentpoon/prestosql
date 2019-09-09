@@ -84,7 +84,6 @@ public class PrestoTSDBService
         return props;
     }
 
-    //    @Inject
     protected PrestoTSDBService(SystemConfiguration config)
     {
         super(config);
@@ -231,7 +230,7 @@ public class PrestoTSDBService
         String agg = convertArgusAggregatorToPrestoAggregator(query.getAggregator());
 
         Map<String, String> tags = query.getTags();
-        String tagWhereClause = tags.entrySet().stream()
+        String tagsFilter = tags.entrySet().stream()
                 .filter(entry -> !entry.getValue().equals("*"))
                 .map(entry -> MessageFormat.format(
                         " AND element_at(tags, ?) IN ({0})",
@@ -257,10 +256,10 @@ public class PrestoTSDBService
 
         String selectSql = MessageFormat.format("SELECT {0} {1}(value) value, time, scope, metric FROM {2}"
                         + " WHERE time >= ? AND time <= ? {3} {4} {5} {6}",
-                aliasedMapCols, agg, metricsTableName, scopeFilter, metricFilter, tagWhereClause, groupByClause);
+                aliasedMapCols, agg, metricsTableName, scopeFilter, metricFilter, tagsFilter, groupByClause);
 
         if (query.getDownsampler() != null) {
-            String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, scopeFilter, metricFilter, tagWhereClause, aliasedMapCols, groupByOrdinals);
+            String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, scopeFilter, metricFilter, tagsFilter, aliasedMapCols, groupByOrdinals);
             if (query.getDownsampler().equals(query.getAggregator())) {
                 return downsamplingSql;
             }
@@ -268,8 +267,8 @@ public class PrestoTSDBService
             if (hasNoAggregator(query)) {
                 tagKeyCols = "tags,";
             }
-            selectSql = MessageFormat.format(" WITH downsampled AS ({2}) SELECT {1} {0}(value) AS value, time as \"time\", scope, metric FROM downsampled {3}",
-                    agg, tagKeyCols, downsamplingSql, groupByClause);
+            selectSql = MessageFormat.format(" WITH downsampled AS ({0}) SELECT {1} {2}(value) AS value, time as \"time\", scope, metric FROM downsampled {3}",
+                    downsamplingSql, tagKeyCols, agg, groupByClause);
         }
 
         return selectSql;
@@ -282,7 +281,7 @@ public class PrestoTSDBService
                 .collect(Collectors.joining(",", "(", ")"));
     }
 
-    private static String buildDownsamplingQuery(MetricQuery query, String metricsTableName, String scopeFilter, String metricFilter, String tagWhereClause, String aliasedMapCols, String groupByOrdinals)
+    private static String buildDownsamplingQuery(MetricQuery query, String metricsTableName, String scopeFilter, String metricFilter, String tagsFilter, String aliasedMapCols, String groupByOrdinals)
     {
         String downsamplingAgg = convertArgusAggregatorToPrestoAggregator(query.getDownsampler());
         long downsamplingPeriodSec = TimeUnit.SECONDS.convert(query.getDownsamplingPeriod(), TimeUnit.MILLISECONDS);
@@ -301,20 +300,20 @@ public class PrestoTSDBService
             groupByOrdinals = "1,";
         }
         String downsamplingSql = MessageFormat.format(
-                "SELECT {2} {0}(value) value, scope, metric, {1} time "
+                "SELECT {0} {1}(value) value, scope, metric, {2} time "
                         + "FROM {3} "
-                        + "WHERE time >= {8} AND time < {9} {6} {7} {4} "
-                        + "GROUP BY {5} scope, metric, {1} ",
+                        + "WHERE time >= {4} AND time < {5} {6} {7} {8} "
+                        + "GROUP BY {9} scope, metric, {2} ",
+                aliasedMapCols,
                 downsamplingAgg,
                 timeDownsampleFunction,
-                aliasedMapCols,
                 metricsTableName,
-                tagWhereClause,
-                groupByOrdinals,
+                startTimeParameter,
+                endTimeParameter,
                 scopeFilter,
                 metricFilter,
-                startTimeParameter,
-                endTimeParameter);
+                tagsFilter,
+                groupByOrdinals);
         return downsamplingSql;
     }
 
