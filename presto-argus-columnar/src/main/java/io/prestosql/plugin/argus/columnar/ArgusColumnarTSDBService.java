@@ -18,7 +18,6 @@ import com.salesforce.dva.argus.service.tsdb.MetricQuery;
 import javax.inject.Inject;
 
 import java.util.List;
-import java.util.OptionalLong;
 
 /**
  * Wrapper around PrestoTSDBService which adds LIMIT
@@ -36,13 +35,17 @@ public class ArgusColumnarTSDBService
     @Override
     protected String getPrestoQuery(MetricQuery query)
     {
-        ArgusColumnarMetricQuery columnarQuery = (ArgusColumnarMetricQuery) query;
-        String prestoQuery = super.getPrestoQuery(query);
-        OptionalLong limit = columnarQuery.getLimit();
-        if (limit.isPresent()) {
-            return prestoQuery + " LIMIT " + limit.getAsLong();
-        }
-        return prestoQuery;
+        return super.getPrestoQuery(query);
+        //TODO disable LIMIT because it's currently not pushed down in all cases
+        // pushed down: SELECT col_A FROM table WHERE col_A = 'val' LIMIT 10
+        // not pushed down: SELECT col_B FROM table WHERE col_A = 'val' LIMIT 10
+//        ArgusColumnarMetricQuery columnarQuery = (ArgusColumnarMetricQuery) query;
+//        String prestoQuery = super.getPrestoQuery(query);
+//        OptionalLong limit = columnarQuery.getLimit();
+//        if (limit.isPresent()) {
+//            return prestoQuery + " LIMIT " + limit.getAsLong();
+//        }
+//        return prestoQuery;
     }
 
     @Override
