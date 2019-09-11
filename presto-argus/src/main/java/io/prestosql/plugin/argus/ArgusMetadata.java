@@ -15,7 +15,6 @@ package io.prestosql.plugin.argus;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ColumnMetadata;
@@ -27,16 +26,16 @@ import io.prestosql.spi.connector.ConnectorTableProperties;
 import io.prestosql.spi.connector.Constraint;
 import io.prestosql.spi.connector.ConstraintApplicationResult;
 import io.prestosql.spi.connector.LimitApplicationResult;
+import io.prestosql.spi.connector.ProjectionApplicationResult;
 import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.connector.SchemaTablePrefix;
+import io.prestosql.spi.expression.ConnectorExpression;
 import io.prestosql.spi.predicate.TupleDomain;
 import io.prestosql.spi.type.MapType;
 import io.prestosql.spi.type.StandardTypes;
 import io.prestosql.spi.type.Type;
 import io.prestosql.spi.type.TypeManager;
 import io.prestosql.spi.type.TypeSignatureParameter;
-
-import javax.inject.Inject;
 
 import java.util.List;
 import java.util.Map;
@@ -45,33 +44,22 @@ import java.util.OptionalLong;
 import java.util.Set;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static io.prestosql.plugin.argus.MetadataUtil.AGGREGATOR;
-import static io.prestosql.plugin.argus.MetadataUtil.DATAPOINTS;
 import static io.prestosql.plugin.argus.MetadataUtil.DISCOVERY_TABLE_NAME;
-import static io.prestosql.plugin.argus.MetadataUtil.DOWNSAMPLER;
-import static io.prestosql.plugin.argus.MetadataUtil.END_COLUMN_HANDLE;
-import static io.prestosql.plugin.argus.MetadataUtil.EXPRESSION_HANDLE;
-import static io.prestosql.plugin.argus.MetadataUtil.MAPPED_METRICS_TABLE_NAME;
 import static io.prestosql.plugin.argus.MetadataUtil.METRIC_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.METRIC_REGEX;
 import static io.prestosql.plugin.argus.MetadataUtil.SCOPE_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.SCOPE_REGEX;
-import static io.prestosql.plugin.argus.MetadataUtil.START_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.SYSTEM_SCHEMA_NAME;
-import static io.prestosql.plugin.argus.MetadataUtil.TAGS;
 import static io.prestosql.plugin.argus.MetadataUtil.TAG_KEY;
 import static io.prestosql.plugin.argus.MetadataUtil.TAG_KEY_REGEX;
 import static io.prestosql.plugin.argus.MetadataUtil.TAG_VALUE;
 import static io.prestosql.plugin.argus.MetadataUtil.TAG_VALUE_REGEX;
 import static io.prestosql.plugin.argus.MetadataUtil.isSystemSchema;
-import static io.prestosql.spi.type.DoubleType.DOUBLE;
-import static io.prestosql.spi.type.TimestampType.TIMESTAMP;
-import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static io.prestosql.spi.type.VarcharType.createUnboundedVarcharType;
 import static java.util.Collections.emptyList;
 import static java.util.Objects.requireNonNull;
 
-public class ArgusMetadata
+public abstract class ArgusMetadata
         implements ConnectorMetadata
 {
     public static ArgusSystemTable discoveryTable = new ArgusSystemTable(
@@ -86,26 +74,15 @@ public class ArgusMetadata
                     new ArgusColumnHandle(METRIC_REGEX, createUnboundedVarcharType()),
                     new ArgusColumnHandle(TAG_KEY_REGEX, createUnboundedVarcharType()),
                     new ArgusColumnHandle(TAG_VALUE_REGEX, createUnboundedVarcharType())));
-    private final TypeManager typeManager;
-    private final Set<ArgusSystemTable> systemTables;
-    private final ArgusSystemTable mappedMetricsTable;
+    protected final TypeManager typeManager;
+    protected final Set<ArgusSystemTable> systemTables;
+    protected final ArgusSystemTable mappedMetricsTable;
 
-    @Inject
-    public ArgusMetadata(TypeManager typeManager)
+    public ArgusMetadata(TypeManager typeManager, Set<ArgusSystemTable> systemTables, ArgusSystemTable mappedMetricsTable)
     {
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
-
-        this.mappedMetricsTable = new ArgusSystemTable(MAPPED_METRICS_TABLE_NAME, "Query for mapped metrics", ImmutableList.of(
-                START_COLUMN_HANDLE,
-                END_COLUMN_HANDLE,
-                SCOPE_COLUMN_HANDLE,
-                METRIC_COLUMN_HANDLE,
-                new ArgusColumnHandle(TAGS, mapType(VARCHAR, VARCHAR)),
-                new ArgusColumnHandle(AGGREGATOR, VARCHAR),
-                new ArgusColumnHandle(DOWNSAMPLER, VARCHAR),
-                new ArgusColumnHandle(DATAPOINTS, mapType(TIMESTAMP, DOUBLE)),
-                EXPRESSION_HANDLE));
-        systemTables = ImmutableSet.of(ArgusMetadata.discoveryTable, getMappedMetricsTable());
+        this.mappedMetricsTable = requireNonNull(mappedMetricsTable, "mappedMetricsTable is null");
+        this.systemTables = requireNonNull(systemTables, "systemTables is null");
     }
 
     @Override
@@ -208,6 +185,16 @@ public class ArgusMetadata
     }
 
     @Override
+    public Optional<ProjectionApplicationResult<ConnectorTableHandle>> applyProjection(
+            ConnectorSession session, ConnectorTableHandle handle,
+            List<ConnectorExpression> projections, Map<String, ColumnHandle> assignments)
+    {
+        // TODO ideally, use this to filter datapoint values once expression pushdown is supported
+        // e.g. map_filter(datapoints, (k,v) -> v > 99)
+        return ConnectorMetadata.super.applyProjection(session, handle, projections, assignments);
+    }
+
+    @Override
     public Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyFilter(ConnectorSession session, ConnectorTableHandle table, Constraint constraint)
     {
         ArgusTableHandle handle = (ArgusTableHandle) table;
@@ -248,7 +235,7 @@ public class ArgusMetadata
         return Optional.of(new LimitApplicationResult<>(handle, limitGuaranteed));
     }
 
-    public MapType mapType(Type keyType, Type valueType)
+    public static MapType mapType(TypeManager typeManager, Type keyType, Type valueType)
     {
         return (MapType) typeManager.getParameterizedType(StandardTypes.MAP, ImmutableList.of(
                 TypeSignatureParameter.of(keyType.getTypeSignature()),

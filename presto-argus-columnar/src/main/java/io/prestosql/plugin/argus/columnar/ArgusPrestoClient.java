@@ -25,11 +25,9 @@ import com.salesforce.dva.argus.service.tsdb.MetricQuery.Aggregator;
 import io.airlift.slice.Slice;
 import io.prestosql.plugin.argus.ArgusClient;
 import io.prestosql.plugin.argus.ArgusColumnHandle;
-import io.prestosql.plugin.argus.ArgusErrorCode;
 import io.prestosql.plugin.argus.ArgusMetadata;
 import io.prestosql.plugin.argus.ArgusSplit;
 import io.prestosql.plugin.argus.ArgusTableHandle;
-import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.block.SingleMapBlock;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.predicate.Domain;
@@ -39,6 +37,7 @@ import javax.inject.Inject;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import static io.prestosql.plugin.argus.ArgusSplitUtil.getEndTime;
@@ -47,10 +46,10 @@ import static io.prestosql.plugin.argus.ArgusSplitUtil.getScopeRanges;
 import static io.prestosql.plugin.argus.ArgusSplitUtil.getStartTime;
 import static io.prestosql.plugin.argus.MetadataUtil.AGGREGATOR;
 import static io.prestosql.plugin.argus.MetadataUtil.DOWNSAMPLER;
-import static io.prestosql.plugin.argus.MetadataUtil.EXPRESSION;
 import static io.prestosql.plugin.argus.MetadataUtil.METRIC_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.SCOPE_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.TAGS;
+import static io.prestosql.plugin.argus.columnar.ArgusColumnarMetadata.VALUE;
 import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
 
@@ -117,8 +116,8 @@ public class ArgusPrestoClient
                     query.setDownsampler(getDownsampler(expressionString));
                     query.setDownsamplingPeriod(getDownsamplingPeriod(expressionString));
                     break;
-                case EXPRESSION:
-                    throw new PrestoException(ArgusErrorCode.ARGUS_QUERY_ERROR, "expression not supported with argus-presto connector");
+                case VALUE:
+                    query.setValueDomain(Optional.of(domain));
             }
         }
         return query;

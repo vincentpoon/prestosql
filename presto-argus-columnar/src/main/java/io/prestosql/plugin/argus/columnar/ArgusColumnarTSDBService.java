@@ -14,10 +14,16 @@
 package io.prestosql.plugin.argus.columnar;
 
 import com.salesforce.dva.argus.service.tsdb.MetricQuery;
+import io.prestosql.spi.predicate.Domain;
 
 import javax.inject.Inject;
 
 import java.util.List;
+import java.util.Optional;
+
+import static io.prestosql.plugin.argus.columnar.ArgusColumnarMetadata.VALUE;
+import static io.prestosql.plugin.argus.columnar.PrestoTSDBQueryBuilder.toPredicate;
+import static io.prestosql.spi.type.DoubleType.DOUBLE;
 
 /**
  * Wrapper around PrestoTSDBService which adds LIMIT
@@ -33,9 +39,9 @@ public class ArgusColumnarTSDBService
     }
 
     @Override
-    protected String getPrestoQuery(MetricQuery query)
+    protected String getPrestoQuery(MetricQuery query, List<TypeAndValue> bindings)
     {
-        return super.getPrestoQuery(query);
+        return super.getPrestoQuery(query, bindings);
         //TODO disable LIMIT because it's currently not pushed down in all cases
         // pushed down: SELECT col_A FROM table WHERE col_A = 'val' LIMIT 10
         // not pushed down: SELECT col_B FROM table WHERE col_A = 'val' LIMIT 10
@@ -53,5 +59,16 @@ public class ArgusColumnarTSDBService
     {
         ArgusColumnarMetricQuery columnarQuery = (ArgusColumnarMetricQuery) query;
         return columnarQuery.getProjection().orElse(ALL_COLUMNS);
+    }
+
+    @Override
+    protected Optional<String> additionalFilter(MetricQuery query, List<TypeAndValue> bindings)
+    {
+        ArgusColumnarMetricQuery columnarQuery = (ArgusColumnarMetricQuery) query;
+        Optional<Domain> valueDomain = columnarQuery.getValueDomain();
+        if (valueDomain.isPresent()) {
+            return Optional.of(toPredicate(DOUBLE, VALUE, valueDomain.get(), bindings));
+        }
+        return super.additionalFilter(query, bindings);
     }
 }

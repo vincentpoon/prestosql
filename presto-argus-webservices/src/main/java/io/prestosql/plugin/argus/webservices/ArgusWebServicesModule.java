@@ -33,7 +33,7 @@ public class ArgusWebServicesModule
     protected void setup(Binder binder)
     {
         binder.bind(ArgusConnector.class).in(Scopes.SINGLETON);
-        binder.bind(ArgusMetadata.class).in(Scopes.SINGLETON);
+        binder.bind(ArgusMetadata.class).to(ArgusWebServicesMetadata.class).in(Scopes.SINGLETON);
         binder.bind(ArgusClient.class).to(ArgusWebServicesClient.class).in(Scopes.SINGLETON);
         binder.bind(ArgusRecordSetProvider.class).in(Scopes.SINGLETON);
         binder.bind(ConnectorSplitManager.class).to(ArgusWebServicesSplitManager.class).in(Scopes.SINGLETON);

@@ -25,11 +25,11 @@ import com.salesforce.dva.argus.service.tsdb.MetricQuery;
 import com.salesforce.dva.argus.service.tsdb.MetricQuery.Aggregator;
 import com.salesforce.dva.argus.system.SystemAssert;
 import com.salesforce.dva.argus.system.SystemConfiguration;
+import com.salesforce.dva.argus.system.SystemException;
 import io.airlift.log.Logger;
 import io.prestosql.jdbc.PrestoConnection;
 import io.prestosql.jdbc.PrestoDriver;
-import io.prestosql.plugin.argus.ArgusErrorCode;
-import io.prestosql.spi.PrestoException;
+import io.prestosql.spi.type.Type;
 
 import javax.inject.Inject;
 
@@ -48,6 +48,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collector;
@@ -61,6 +62,7 @@ import static io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn.SC
 import static io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn.TAGS;
 import static io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn.TIME;
 import static io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn.VALUE;
+import static io.prestosql.spi.type.DoubleType.DOUBLE;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
@@ -126,22 +128,23 @@ public class PrestoTSDBService
     List<Metric> selectMetrics(MetricQuery metricQuery)
     {
         Map<String, Metric> metrics = new HashMap<>();
-        String selectQuery = getPrestoQuery(metricQuery);
+        List<TypeAndValue> bindings = new ArrayList<>();
+        String selectQuery = getPrestoQuery(metricQuery, bindings);
         logger.debug("Executing query: " + selectQuery);
         try (Connection connection = prestoDriver.connect(prestoJDBCUrl, connectionProperties)) {
             connection.unwrap(PrestoConnection.class).setTimeZoneId("UTC");
-            PreparedStatement preparedStmt = prepareStatement(metricQuery, selectQuery, connection);
+            PreparedStatement preparedStmt = prepareStatement(metricQuery, selectQuery, connection, bindings);
             ResultSet rs = preparedStmt.executeQuery();
             readResults(metricQuery, metrics, rs);
         }
         catch (SQLException sqle) {
-            throw new PrestoException(ArgusErrorCode.ARGUS_QUERY_ERROR, "Failed to read data from Presto. Query: " + selectQuery, sqle);
+            throw new SystemException("Failed to read data from Presto. Query: " + selectQuery, sqle);
         }
 
         return new ArrayList<>(metrics.values());
     }
 
-    private PreparedStatement prepareStatement(MetricQuery metricQuery, String selectQuery, Connection connection)
+    private PreparedStatement prepareStatement(MetricQuery metricQuery, String selectQuery, Connection connection, List<TypeAndValue> bindings)
             throws SQLException
     {
         PreparedStatement preparedStmt = connection.prepareStatement(selectQuery);
@@ -177,6 +180,13 @@ public class PrestoTSDBService
                 for (String orValue : entry.getValue().split("\\|")) {
                     preparedStmt.setString(index++, orValue);
                 }
+            }
+        }
+
+        for (TypeAndValue typeAndValue : bindings) {
+            Type type = typeAndValue.getType();
+            if (DOUBLE.equals(type)) {
+                preparedStmt.setDouble(index++, (double) typeAndValue.getValue());
             }
         }
         return preparedStmt;
@@ -225,27 +235,9 @@ public class PrestoTSDBService
         return endTs;
     }
 
-    protected String getPrestoQuery(MetricQuery query)
+    protected String getPrestoQuery(MetricQuery query, List<TypeAndValue> bindings)
     {
-        String scopeFilter = "";
-        if (!isNullOrEmpty(query.getScope()) && !query.getScope().equals("*")) {
-            scopeFilter = "AND scope IN " + toParamString(query.getScope());
-        }
-        String metricFilter = "";
-        if (!isNullOrEmpty(query.getMetric()) && !query.getMetric().equals("*")) {
-            metricFilter = "AND metric IN " + toParamString(query.getMetric());
-        }
-        String agg = convertArgusAggregatorToPrestoAggregator(query.getAggregator());
-
         Map<String, String> tags = query.getTags();
-        String tagsFilter = tags.entrySet().stream()
-                .filter(entry -> !entry.getValue().equals("*"))
-                .map(entry -> MessageFormat.format(
-                        " AND element_at({0}, ?) IN ({1})",
-                        TAGS,
-                        // convert "tagA|tagB|tagC" to "?,?,?"
-                        Arrays.stream(entry.getValue().split("\\|")).map(value -> "?").collect(joining(","))))
-                .collect(joining(","));
         Collector<CharSequence, ?, String> tagsJoiner = joining(",", "", tags.size() > 0 ? "," : "");
         // TODO no way to provide aliased col name as a param, since they must be provided before param binding,
         // so need to find another way to do this
@@ -263,17 +255,20 @@ public class PrestoTSDBService
             groupByOrdinals = "1, ";
         }
 
+        String agg = convertArgusAggregatorToPrestoAggregator(query.getAggregator());
         Map<TSDBColumn, String> expressions = ImmutableMap.of(
                 TAGS, aliasedMapCols,
                 VALUE, aggregatedValueProjection(agg));
         String projection = buildProjection(query, expressions);
 
+        StringBuilder filters = buildFilters(query, bindings, tags);
+
         String selectSql = MessageFormat.format("SELECT {0} FROM {1}"
-                        + " WHERE time >= ? AND time <= ? {2} {3} {4} {5}",
-                projection, metricsTableName, scopeFilter, metricFilter, tagsFilter, groupByClause);
+                        + " WHERE time >= ? AND time <= ? {2} {3}",
+                projection, metricsTableName, filters, groupByClause);
 
         if (query.getDownsampler() != null) {
-            String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, scopeFilter, metricFilter, tagsFilter, aliasedMapCols, groupByOrdinals);
+            String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, filters.toString(), aliasedMapCols, groupByOrdinals);
             if (query.getDownsampler().equals(query.getAggregator())) {
                 return downsamplingSql;
             }
@@ -293,6 +288,34 @@ public class PrestoTSDBService
         return selectSql;
     }
 
+    private StringBuilder buildFilters(MetricQuery query, List<TypeAndValue> bindings,
+            Map<String, String> tags)
+    {
+        StringBuilder filters = new StringBuilder();
+        if (!isNullOrEmpty(query.getScope()) && !query.getScope().equals("*")) {
+            filters.append(" AND scope IN " + toParamString(query.getScope()));
+        }
+        if (!isNullOrEmpty(query.getMetric()) && !query.getMetric().equals("*")) {
+            filters.append(" AND metric IN " + toParamString(query.getMetric()));
+        }
+        additionalFilter(query, bindings).ifPresent(additional -> filters.append(" AND " + additional));
+        String tagsFilter = tags.entrySet().stream()
+                .filter(entry -> !entry.getValue().equals("*"))
+                .map(entry -> MessageFormat.format(
+                        " AND element_at({0}, ?) IN ({1})",
+                        TAGS,
+                        // convert "tagA|tagB|tagC" to "?,?,?"
+                        Arrays.stream(entry.getValue().split("\\|")).map(value -> "?").collect(joining(","))))
+                .collect(joining(","));
+        filters.append(tagsFilter);
+        return filters;
+    }
+
+    protected Optional<String> additionalFilter(MetricQuery query, List<TypeAndValue> bindings)
+    {
+        return Optional.empty();
+    }
+
     private static String aggregatedValueProjection(String agg)
     {
         return MessageFormat.format("{0}({1}) AS {1}", agg, VALUE);
@@ -305,7 +328,7 @@ public class PrestoTSDBService
                 .collect(Collectors.joining(",", "(", ")"));
     }
 
-    private String buildDownsamplingQuery(MetricQuery query, String metricsTableName, String scopeFilter, String metricFilter, String tagsFilter, String aliasedMapCols, String groupByOrdinals)
+    private String buildDownsamplingQuery(MetricQuery query, String metricsTableName, String filters, String aliasedMapCols, String groupByOrdinals)
     {
         String downsamplingAgg = convertArgusAggregatorToPrestoAggregator(query.getDownsampler());
         long downsamplingPeriodSec = TimeUnit.SECONDS.convert(query.getDownsamplingPeriod(), TimeUnit.MILLISECONDS);
@@ -333,15 +356,13 @@ public class PrestoTSDBService
         String downsamplingSql = MessageFormat.format(
                 "SELECT {0} "
                         + "FROM {1} "
-                        + "WHERE time >= {2} AND time < {3} {4} {5} {6} "
-                        + "GROUP BY {7} scope, metric, {8} ",
+                        + "WHERE time >= {2} AND time < {3} {4} "
+                        + "GROUP BY {5} scope, metric, {6} ",
                 projection,
                 metricsTableName,
                 startTimeParameter,
                 endTimeParameter,
-                scopeFilter,
-                metricFilter,
-                tagsFilter,
+                filters,
                 groupByOrdinals,
                 timeDownsampleFunction);
         return downsamplingSql;
@@ -423,6 +444,28 @@ public class PrestoTSDBService
 
     // order currently matters for TAGS, since it's referenced in groupByOrdinals
     public static final List<TSDBColumn> ALL_COLUMNS = ImmutableList.of(TAGS, SCOPE, METRIC, TIME, VALUE);
+
+    public static class TypeAndValue
+    {
+        private final Type type;
+        private final Object value;
+
+        public TypeAndValue(Type type, Object value)
+        {
+            this.type = requireNonNull(type, "type is null");
+            this.value = requireNonNull(value, "value is null");
+        }
+
+        public Type getType()
+        {
+            return type;
+        }
+
+        public Object getValue()
+        {
+            return value;
+        }
+    }
 
     public static enum TSDBColumn
     {

@@ -34,7 +34,7 @@ public class ArgusColumnarModule
     protected void setup(Binder binder)
     {
         binder.bind(ArgusConnector.class).in(Scopes.SINGLETON);
-        binder.bind(ArgusMetadata.class).in(Scopes.SINGLETON);
+        binder.bind(ArgusMetadata.class).to(ArgusColumnarMetadata.class).in(Scopes.SINGLETON);
         binder.bind(ArgusClient.class).to(ArgusPrestoClient.class).in(Scopes.SINGLETON);
         binder.bind(TSDBService.class).to(ArgusColumnarTSDBService.class).in(Scopes.SINGLETON);
         binder.bind(ArgusRecordSetProvider.class).in(Scopes.SINGLETON);
