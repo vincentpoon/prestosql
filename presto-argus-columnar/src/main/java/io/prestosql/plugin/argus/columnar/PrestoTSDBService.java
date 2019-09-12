@@ -47,8 +47,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collector;
@@ -63,6 +61,8 @@ import static io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn.TA
 import static io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn.TIME;
 import static io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn.VALUE;
 import static io.prestosql.spi.type.DoubleType.DOUBLE;
+import static io.prestosql.spi.type.TimestampType.TIMESTAMP;
+import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
@@ -150,43 +150,20 @@ public class PrestoTSDBService
         PreparedStatement preparedStmt = connection.prepareStatement(selectQuery);
         int index = 1;
 
-        preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getStartTimestamp()));
-        if (metricQuery.getDownsampler() != null) {
-            // startTimeParameter in getPrestoQuery
-            preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getStartTimestamp()));
-        }
-
-        preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getEndTimestamp()));
-        if (metricQuery.getDownsampler() != null) {
-            // endTimeParameter in getPrestoQuery
-            preparedStmt.setTimestamp(index++, getUtcTimestamp(metricQuery.getEndTimestamp()));
-        }
-
-        if (!isNullOrEmpty(metricQuery.getScope()) && !metricQuery.getScope().equals("*")) {
-            for (String scope : metricQuery.getScope().split("\\|")) {
-                preparedStmt.setString(index++, scope);
-            }
-        }
-
-        if (!isNullOrEmpty(metricQuery.getMetric()) && !metricQuery.getMetric().equals("*")) {
-            for (String metric : metricQuery.getMetric().split("\\|")) {
-                preparedStmt.setString(index++, metric);
-            }
-        }
-
-        if (!metricQuery.getTags().isEmpty()) {
-            for (Entry<String, String> entry : metricQuery.getTags().entrySet()) {
-                preparedStmt.setString(index++, entry.getKey());
-                for (String orValue : entry.getValue().split("\\|")) {
-                    preparedStmt.setString(index++, orValue);
-                }
-            }
-        }
-
         for (TypeAndValue typeAndValue : bindings) {
             Type type = typeAndValue.getType();
+            Object value = typeAndValue.getValue();
             if (DOUBLE.equals(type)) {
-                preparedStmt.setDouble(index++, (double) typeAndValue.getValue());
+                preparedStmt.setDouble(index++, (double) value);
+            }
+            else if (VARCHAR.equals(type)) {
+                preparedStmt.setString(index++, (String) value);
+            }
+            else if (TIMESTAMP.equals(type)) {
+                preparedStmt.setTimestamp(index++, (Timestamp) value);
+            }
+            else {
+                throw new SystemException("Unsupported binding type: " + type);
             }
         }
         return preparedStmt;
@@ -238,17 +215,16 @@ public class PrestoTSDBService
     protected String getPrestoQuery(MetricQuery query, List<TypeAndValue> bindings)
     {
         Map<String, String> tags = query.getTags();
-        Collector<CharSequence, ?, String> tagsJoiner = joining(",", "", tags.size() > 0 ? "," : "");
         // TODO no way to provide aliased col name as a param, since they must be provided before param binding,
         // so need to find another way to do this
         String aliasedMapCols = tags.keySet().stream()
                 .map(tagKey -> MessageFormat.format("tags[''{0}''] as \"{0}\"", tagKey))
-                .collect(tagsJoiner);
+                .collect(joining(","));
 
         String groupByOrdinals = IntStream.range(1, tags.size() + 1)
                 .mapToObj(Integer::toString)
-                .collect(tagsJoiner);
-        String groupByClause = MessageFormat.format(" GROUP BY {0} time, scope, metric", groupByOrdinals);
+                .collect(joining(",", "", tags.size() > 0 ? "," : ""));
+        String groupByClause = MessageFormat.format("GROUP BY {0} {1}, {2}, {3}", groupByOrdinals, TIME, SCOPE, METRIC);
         if (hasNoAggregator(query)) {
             groupByClause = "";
             aliasedMapCols = TAGS.toString();
@@ -261,18 +237,15 @@ public class PrestoTSDBService
                 VALUE, aggregatedValueProjection(agg));
         String projection = buildProjection(query, expressions);
 
-        StringBuilder filters = buildFilters(query, bindings, tags);
+        StringBuilder filtersBuilder = buildFilters(query, bindings);
 
-        String selectSql = MessageFormat.format("SELECT {0} FROM {1}"
-                        + " WHERE time >= ? AND time <= ? {2} {3}",
-                projection, metricsTableName, filters, groupByClause);
-
+        String selectSql;
         if (query.getDownsampler() != null) {
-            String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, filters.toString(), aliasedMapCols, groupByOrdinals);
+            String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, filtersBuilder, aliasedMapCols, groupByOrdinals, bindings);
             if (query.getDownsampler().equals(query.getAggregator())) {
                 return downsamplingSql;
             }
-            String tagKeyCols = tags.keySet().stream().map(tagKey -> "\"" + tagKey + "\"").collect(tagsJoiner);
+            String tagKeyCols = tags.keySet().stream().map(tagKey -> "\"" + tagKey + "\"").collect(joining(","));
             if (hasNoAggregator(query)) {
                 tagKeyCols = TAGS.toString();
             }
@@ -284,23 +257,37 @@ public class PrestoTSDBService
             selectSql = MessageFormat.format(" WITH downsampled AS ({0}) SELECT {1} FROM downsampled {2}",
                     downsamplingSql, projection, groupByClause);
         }
-
+        else {
+            filtersBuilder.append(MessageFormat.format(" AND {0} >= ? AND {0} <= ?", TIME));
+            bindings.add(new TypeAndValue(TIMESTAMP, getUtcTimestamp(query.getStartTimestamp())));
+            bindings.add(new TypeAndValue(TIMESTAMP, getUtcTimestamp(query.getEndTimestamp())));
+            selectSql = MessageFormat.format(
+                    "SELECT {0} FROM {1} WHERE {2} {3}",
+                    projection, metricsTableName, filtersBuilder, groupByClause);
+        }
         return selectSql;
     }
 
-    private StringBuilder buildFilters(MetricQuery query, List<TypeAndValue> bindings,
-            Map<String, String> tags)
+    protected StringBuilder buildFilters(MetricQuery query, List<TypeAndValue> bindings)
     {
         StringBuilder filters = new StringBuilder();
+
         if (!isNullOrEmpty(query.getScope()) && !query.getScope().equals("*")) {
-            filters.append(" AND scope IN " + toParamString(query.getScope()));
+            filters.append(MessageFormat.format("{0} IN {1}", SCOPE, toParamString(query.getScope(), bindings)));
         }
+
         if (!isNullOrEmpty(query.getMetric()) && !query.getMetric().equals("*")) {
-            filters.append(" AND metric IN " + toParamString(query.getMetric()));
+            filters.append(MessageFormat.format(" AND {0} IN {1}", METRIC, toParamString(query.getMetric(), bindings)));
         }
-        additionalFilter(query, bindings).ifPresent(additional -> filters.append(" AND " + additional));
-        String tagsFilter = tags.entrySet().stream()
+
+        String tagsFilter = query.getTags().entrySet().stream()
                 .filter(entry -> !entry.getValue().equals("*"))
+                .peek(entry -> {
+                    bindings.add(new TypeAndValue(VARCHAR, entry.getKey()));
+                    for (String orValue : entry.getValue().split("\\|")) {
+                        bindings.add(new TypeAndValue(VARCHAR, orValue));
+                    }
+                })
                 .map(entry -> MessageFormat.format(
                         " AND element_at({0}, ?) IN ({1})",
                         TAGS,
@@ -308,12 +295,8 @@ public class PrestoTSDBService
                         Arrays.stream(entry.getValue().split("\\|")).map(value -> "?").collect(joining(","))))
                 .collect(joining(","));
         filters.append(tagsFilter);
-        return filters;
-    }
 
-    protected Optional<String> additionalFilter(MetricQuery query, List<TypeAndValue> bindings)
-    {
-        return Optional.empty();
+        return filters;
     }
 
     private static String aggregatedValueProjection(String agg)
@@ -321,14 +304,15 @@ public class PrestoTSDBService
         return MessageFormat.format("{0}({1}) AS {1}", agg, VALUE);
     }
 
-    private static String toParamString(String delimited)
+    private static String toParamString(String delimited, List<TypeAndValue> bindings)
     {
         return Arrays.stream(delimited.split("\\|"))
+                .peek(value -> bindings.add(new TypeAndValue(VARCHAR, value)))
                 .map(scope -> "?")
                 .collect(Collectors.joining(",", "(", ")"));
     }
 
-    private String buildDownsamplingQuery(MetricQuery query, String metricsTableName, String filters, String aliasedMapCols, String groupByOrdinals)
+    private String buildDownsamplingQuery(MetricQuery query, String metricsTableName, StringBuilder filtersBuilder, String aliasedMapCols, String groupByOrdinals, List<TypeAndValue> bindings)
     {
         String downsamplingAgg = convertArgusAggregatorToPrestoAggregator(query.getDownsampler());
         long downsamplingPeriodSec = TimeUnit.SECONDS.convert(query.getDownsamplingPeriod(), TimeUnit.MILLISECONDS);
@@ -339,6 +323,12 @@ public class PrestoTSDBService
         // e.g. if end_time=timestamp '2019-07-01 15:00' and downsampler='15m-zimsum',
         // we need to query up to 15:15 to be able to downsample to 15:00
         String endTimeParameter = MessageFormat.format("from_unixtime((to_unixtime(?) + {0}) - (to_unixtime(?) % {0}))", Long.toString(downsamplingPeriodSec));
+        filtersBuilder.append(MessageFormat.format(" AND {0} >= {1} AND {0} <= {2}", TIME, startTimeParameter, endTimeParameter));
+        bindings.add(new TypeAndValue(TIMESTAMP, getUtcTimestamp(query.getStartTimestamp())));
+        bindings.add(new TypeAndValue(TIMESTAMP, getUtcTimestamp(query.getStartTimestamp())));
+        bindings.add(new TypeAndValue(TIMESTAMP, getUtcTimestamp(query.getEndTimestamp())));
+        bindings.add(new TypeAndValue(TIMESTAMP, getUtcTimestamp(query.getEndTimestamp())));
+
         // If no tags are specified, we need to downsample before aggregating.
         // Specifying 'tags' groupBy here makes it so we don't aggregate.
         // But if downsampler=aggregator, we *do* want the aggregating to happen, as an optimization to do everything in one query
@@ -346,6 +336,7 @@ public class PrestoTSDBService
             aliasedMapCols = TAGS.toString();
             groupByOrdinals = "1,";
         }
+        String groupByColumns = MessageFormat.format("{0} {1}, {2}, {3}", groupByOrdinals, SCOPE, METRIC, timeDownsampleFunction);
 
         Map<TSDBColumn, String> expressions = ImmutableMap.of(
                 TAGS, aliasedMapCols,
@@ -356,15 +347,12 @@ public class PrestoTSDBService
         String downsamplingSql = MessageFormat.format(
                 "SELECT {0} "
                         + "FROM {1} "
-                        + "WHERE time >= {2} AND time < {3} {4} "
-                        + "GROUP BY {5} scope, metric, {6} ",
+                        + "WHERE {2} "
+                        + "GROUP BY {3} ",
                 projection,
                 metricsTableName,
-                startTimeParameter,
-                endTimeParameter,
-                filters,
-                groupByOrdinals,
-                timeDownsampleFunction);
+                filtersBuilder,
+                groupByColumns);
         return downsamplingSql;
     }
 
@@ -487,7 +475,7 @@ public class PrestoTSDBService
         PRESTO_CATALOG_NAME("service.property.tsdb.presto.catalog.name", "hive"),
         PRESTO_SCHEMA_NAME("service.property.tsdb.presto.schema.name", "s3"),
         PRESTO_TABLE_NAME("service.property.tsdb.presto.table.name", "orc_flat_metrics"),
-        PRESTO_USER_NAME("service.property.tsdb.presto.user.name", "vincent.poon");
+        PRESTO_USER_NAME("service.property.tsdb.presto.user.name", "someUser");
 
         private final String name;
         private final String defaultValue;

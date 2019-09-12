@@ -41,13 +41,13 @@ public class TestPrestoTSDBService
                         Range.lessThan(DOUBLE, 10.1)),
                 false);
         query.setValueDomain(Optional.of(valueDomain));
-        Optional<String> additionalFilter = tsdbService.additionalFilter(query, bindings);
-        assertEquals("((\"value\" < ?) OR (\"value\" >= ?))", additionalFilter.get());
+        StringBuilder filters = tsdbService.buildFilters(query, bindings);
+        assertEquals(filters.toString(), " AND scope IN (?) AND metric IN (?) AND ((\"value\" < ?) OR (\"value\" >= ?))");
 
-        TypeAndValue lessThanBinding = bindings.get(0);
+        TypeAndValue lessThanBinding = bindings.get(2);
         assertEquals(DOUBLE, lessThanBinding.getType());
         assertEquals(10.1, lessThanBinding.getValue());
-        TypeAndValue greaterThanOrEqualBinding = bindings.get(1);
+        TypeAndValue greaterThanOrEqualBinding = bindings.get(3);
         assertEquals(DOUBLE, greaterThanOrEqualBinding.getType());
         assertEquals(13.5, greaterThanOrEqualBinding.getValue());
     }
