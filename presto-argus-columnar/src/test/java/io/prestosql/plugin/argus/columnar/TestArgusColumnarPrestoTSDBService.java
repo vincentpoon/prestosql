@@ -27,7 +27,7 @@ import java.util.OptionalLong;
 import static io.prestosql.spi.type.DoubleType.DOUBLE;
 import static org.testng.Assert.assertEquals;
 
-public class TestPrestoTSDBService
+public class TestArgusColumnarPrestoTSDBService
 {
     @Test
     public void testValueFilter()
@@ -42,7 +42,7 @@ public class TestPrestoTSDBService
                 false);
         query.setValueDomain(Optional.of(valueDomain));
         StringBuilder filters = tsdbService.buildFilters(query, bindings);
-        assertEquals(filters.toString(), " AND scope IN (?) AND metric IN (?) AND ((\"value\" < ?) OR (\"value\" >= ?))");
+        assertEquals(filters.toString(), "scope IN (?) AND metric IN (?) AND ((\"value\" < ?) OR (\"value\" >= ?))");
 
         TypeAndValue lessThanBinding = bindings.get(2);
         assertEquals(DOUBLE, lessThanBinding.getType());
