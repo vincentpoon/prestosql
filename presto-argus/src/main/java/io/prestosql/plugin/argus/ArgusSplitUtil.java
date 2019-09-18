@@ -32,6 +32,7 @@ import static io.prestosql.plugin.argus.MetadataUtil.METRIC_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.SCOPE_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.START_COLUMN_HANDLE;
 import static java.time.temporal.ChronoUnit.HOURS;
+import static java.time.temporal.ChronoUnit.SECONDS;
 
 public class ArgusSplitUtil
 {
@@ -54,14 +55,14 @@ public class ArgusSplitUtil
                 .dividedBy(numSplits);
         Instant currentWindowStart = start;
         while (numSplits-- > 0) {
-            Optional<Instant> currentWindowEnd = numSplits == 0 ? end : Optional.of(currentWindowStart.plus(windowDuration));
+            Optional<Instant> currentWindowEnd = numSplits == 0 ? end : Optional.of(currentWindowStart.plus(windowDuration).truncatedTo(SECONDS));
             // for list of values e.g. WHERE metric IN (...), build one split per scope/metric combination
             for (Range scopeRange : getScopeRanges(domains)) {
                 for (Range metricRange : getMetricRanges(domains)) {
                     splitsList.add(new ArgusSplit(Optional.of(currentWindowStart), currentWindowEnd, ((Slice) scopeRange.getSingleValue()).toStringUtf8(), ((Slice) metricRange.getSingleValue()).toStringUtf8()));
                 }
             }
-            currentWindowStart = currentWindowEnd.orElse(Instant.now()).plusMillis(1);
+            currentWindowStart = currentWindowEnd.orElse(Instant.now()).plusSeconds(1);
         }
         return splitsList.build();
     }
