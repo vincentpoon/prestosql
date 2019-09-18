@@ -15,6 +15,7 @@ package io.prestosql.plugin.argus;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.salesforce.dva.argus.service.metric.MetricReader.TimeUnit;
 import io.airlift.slice.Slice;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.predicate.Domain;
@@ -33,6 +34,7 @@ import static io.prestosql.plugin.argus.MetadataUtil.SCOPE_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.START_COLUMN_HANDLE;
 import static java.time.temporal.ChronoUnit.HOURS;
 import static java.time.temporal.ChronoUnit.SECONDS;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 public class ArgusSplitUtil
 {
@@ -49,20 +51,59 @@ public class ArgusSplitUtil
         }
 
         Instant start = getStartTime(domains);
-        Optional<Instant> end = getEndTime(domains);
+        Instant end = getEndTime(domains).orElse(Instant.now());
 
-        Duration windowDuration = Duration.between(start, end.orElse(Instant.now()))
+        Duration windowDuration = Duration.between(start, end)
                 .dividedBy(numSplits);
+
+        Domain downsamplerDomain = domains.get(MetadataUtil.DOWNSAMPLER_HANDLE);
+        if (downsamplerDomain != null) {
+            return generateDownsamplerSplits(downsamplerDomain, numSplits, start, end, windowDuration, domains);
+        }
+
         Instant currentWindowStart = start;
         while (numSplits-- > 0) {
-            Optional<Instant> currentWindowEnd = numSplits == 0 ? end : Optional.of(currentWindowStart.plus(windowDuration).truncatedTo(SECONDS));
+            Instant currentWindowEnd = numSplits == 0 ? end : currentWindowStart.plus(windowDuration).truncatedTo(SECONDS);
             // for list of values e.g. WHERE metric IN (...), build one split per scope/metric combination
             for (Range scopeRange : getScopeRanges(domains)) {
                 for (Range metricRange : getMetricRanges(domains)) {
-                    splitsList.add(new ArgusSplit(Optional.of(currentWindowStart), currentWindowEnd, ((Slice) scopeRange.getSingleValue()).toStringUtf8(), ((Slice) metricRange.getSingleValue()).toStringUtf8()));
+                    splitsList.add(new ArgusSplit(Optional.of(currentWindowStart), Optional.of(currentWindowEnd), ((Slice) scopeRange.getSingleValue()).toStringUtf8(), ((Slice) metricRange.getSingleValue()).toStringUtf8()));
                 }
             }
-            currentWindowStart = currentWindowEnd.orElse(Instant.now()).plusSeconds(1);
+            currentWindowStart = currentWindowEnd.plusSeconds(1);
+        }
+        return splitsList.build();
+    }
+
+    private static ImmutableList<ArgusSplit> generateDownsamplerSplits(
+            Domain downsamplerDomain,
+            int numSplits,
+            Instant start,
+            Instant end,
+            Duration windowDuration,
+            Map<ColumnHandle, Domain> domains)
+    {
+        Builder<ArgusSplit> splitsList = ImmutableList.builder();
+
+        Long downsamplingPeriodSeconds = MILLISECONDS.toSeconds(getDownsamplingPeriod(((Slice) downsamplerDomain.getSingleValue()).toStringUtf8()));
+        Instant currentWindowStart = start;
+        Instant currentWindowEnd = start;
+
+        while (numSplits-- > 0 && currentWindowStart.compareTo(end) <= 0 && currentWindowEnd.compareTo(end) <= 0) {
+            currentWindowEnd = currentWindowStart.plus(windowDuration);
+            if (numSplits == 0 || end.isBefore(currentWindowEnd)) {
+                currentWindowEnd = end;
+            }
+            long endEpoch = currentWindowEnd.getEpochSecond();
+
+            // for list of values e.g. WHERE metric IN (...), build one split per scope/metric combination
+            for (Range scopeRange : getScopeRanges(domains)) {
+                for (Range metricRange : getMetricRanges(domains)) {
+                    splitsList.add(new ArgusSplit(Optional.of(currentWindowStart), Optional.of(currentWindowEnd), ((Slice) scopeRange.getSingleValue()).toStringUtf8(), ((Slice) metricRange.getSingleValue()).toStringUtf8()));
+                }
+            }
+            // make the next window start time the next downsampling time bucket
+            currentWindowStart = Instant.ofEpochSecond((endEpoch + downsamplingPeriodSeconds) - (endEpoch % downsamplingPeriodSeconds));
         }
         return splitsList.build();
     }
@@ -95,5 +136,15 @@ public class ArgusSplitUtil
             instant = Optional.of(Instant.ofEpochMilli((long) handleDomain.getSingleValue()));
         }
         return instant;
+    }
+
+    private static Long getDownsamplingPeriod(String token)
+    {
+        String[] parts = token.split("-");
+        String timeDigits = parts[0].substring(0, parts[0].length() - 1);
+        String timeUnit = parts[0].substring(parts[0].length() - 1);
+        Long time = Long.parseLong(timeDigits);
+        TimeUnit unit = TimeUnit.fromString(timeUnit);
+        return time * unit.getValue();
     }
 }

@@ -57,6 +57,8 @@ public class MetadataUtil
     public static final ArgusColumnHandle START_COLUMN_HANDLE = new ArgusColumnHandle(START, TIMESTAMP);
     public static final ArgusColumnHandle END_COLUMN_HANDLE = new ArgusColumnHandle(END, TIMESTAMP);
     public static final ArgusColumnHandle EXPRESSION_HANDLE = new ArgusColumnHandle(EXPRESSION, VARCHAR);
+    public static final ArgusColumnHandle AGGREGATOR_HANDLE = new ArgusColumnHandle(AGGREGATOR, VARCHAR);
+    public static final ArgusColumnHandle DOWNSAMPLER_HANDLE = new ArgusColumnHandle(DOWNSAMPLER, VARCHAR);
 
     // used by columnar connector to filter by value
     public static final String VALUE_FILTER = "value_filter";

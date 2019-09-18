@@ -22,9 +22,9 @@ import io.prestosql.spi.type.TypeManager;
 
 import javax.inject.Inject;
 
-import static io.prestosql.plugin.argus.MetadataUtil.AGGREGATOR;
+import static io.prestosql.plugin.argus.MetadataUtil.AGGREGATOR_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.DATAPOINTS;
-import static io.prestosql.plugin.argus.MetadataUtil.DOWNSAMPLER;
+import static io.prestosql.plugin.argus.MetadataUtil.DOWNSAMPLER_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.END_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.EXPRESSION_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.MAPPED_METRICS_TABLE_NAME;
@@ -58,8 +58,8 @@ public class ArgusWebServicesMetadata
                 SCOPE_COLUMN_HANDLE,
                 METRIC_COLUMN_HANDLE,
                 new ArgusColumnHandle(TAGS, mapType(typeManager, VARCHAR, VARCHAR)),
-                new ArgusColumnHandle(AGGREGATOR, VARCHAR),
-                new ArgusColumnHandle(DOWNSAMPLER, VARCHAR),
+                AGGREGATOR_HANDLE,
+                DOWNSAMPLER_HANDLE,
                 new ArgusColumnHandle(DATAPOINTS, mapType(typeManager, TIMESTAMP, DOUBLE)),
                 EXPRESSION_HANDLE));
     }
