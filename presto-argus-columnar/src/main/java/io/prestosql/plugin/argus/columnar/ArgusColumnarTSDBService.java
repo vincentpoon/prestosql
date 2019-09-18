@@ -21,8 +21,8 @@ import javax.inject.Inject;
 import java.util.List;
 import java.util.Optional;
 
-import static io.prestosql.plugin.argus.columnar.ArgusColumnarMetadata.VALUE;
 import static io.prestosql.plugin.argus.columnar.PrestoTSDBQueryBuilder.toPredicate;
+import static io.prestosql.plugin.argus.columnar.PrestoTSDBService.TSDBColumn.VALUE;
 import static io.prestosql.spi.type.DoubleType.DOUBLE;
 
 /**
@@ -68,7 +68,7 @@ public class ArgusColumnarTSDBService
         ArgusColumnarMetricQuery columnarQuery = (ArgusColumnarMetricQuery) query;
         Optional<Domain> valueDomain = columnarQuery.getValueDomain();
         if (valueDomain.isPresent()) {
-            filterBuilder.append(" AND " + toPredicate(DOUBLE, VALUE, valueDomain.get(), bindings));
+            filterBuilder.append(" AND " + toPredicate(DOUBLE, VALUE.toString(), valueDomain.get(), bindings));
         }
         return filterBuilder;
     }

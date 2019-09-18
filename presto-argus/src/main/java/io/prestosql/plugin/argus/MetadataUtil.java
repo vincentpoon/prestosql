@@ -58,6 +58,9 @@ public class MetadataUtil
     public static final ArgusColumnHandle END_COLUMN_HANDLE = new ArgusColumnHandle(END, TIMESTAMP);
     public static final ArgusColumnHandle EXPRESSION_HANDLE = new ArgusColumnHandle(EXPRESSION, VARCHAR);
 
+    // used by columnar connector to filter by value
+    public static final String VALUE_FILTER = "value_filter";
+
     public static boolean isSystemSchema(String schemaName)
     {
         return SYSTEM_SCHEMA_NAME.equals(schemaName) || METRIC_SCHEMA_NAME.equals(schemaName);

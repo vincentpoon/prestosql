@@ -59,6 +59,7 @@ import static io.prestosql.plugin.argus.MetadataUtil.TAG_KEY;
 import static io.prestosql.plugin.argus.MetadataUtil.TAG_KEY_REGEX;
 import static io.prestosql.plugin.argus.MetadataUtil.TAG_VALUE;
 import static io.prestosql.plugin.argus.MetadataUtil.TAG_VALUE_REGEX;
+import static io.prestosql.plugin.argus.MetadataUtil.VALUE_FILTER;
 import static io.prestosql.plugin.argus.MetadataUtil.isSystemSchema;
 import static io.prestosql.plugin.argus.MetadataUtil.urlEncoded;
 import static io.prestosql.spi.StandardErrorCode.FUNCTION_IMPLEMENTATION_ERROR;
@@ -240,6 +241,9 @@ public class ArgusRecordSetProvider
                         }
                         datapointsBlock.closeEntry();
                         values.add(datapointsBlock.getObject(0, Block.class));
+                        break;
+                    case VALUE_FILTER:
+                        values.add(null);
                         break;
                     default:
                         throw new PrestoException(ArgusErrorCode.ARGUS_INTERNAL_ERROR, "Unexpected column: " + columnHandle);

@@ -49,7 +49,7 @@ import static io.prestosql.plugin.argus.MetadataUtil.DOWNSAMPLER;
 import static io.prestosql.plugin.argus.MetadataUtil.METRIC_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.SCOPE_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.TAGS;
-import static io.prestosql.plugin.argus.columnar.ArgusColumnarMetadata.VALUE;
+import static io.prestosql.plugin.argus.MetadataUtil.VALUE_FILTER;
 import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
 
@@ -116,7 +116,7 @@ public class ArgusPrestoClient
                     query.setDownsampler(getDownsampler(expressionString));
                     query.setDownsamplingPeriod(getDownsamplingPeriod(expressionString));
                     break;
-                case VALUE:
+                case VALUE_FILTER:
                     query.setValueDomain(Optional.of(domain));
             }
         }

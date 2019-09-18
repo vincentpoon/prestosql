@@ -31,6 +31,7 @@ import static io.prestosql.plugin.argus.MetadataUtil.METRIC_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.SCOPE_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.START_COLUMN_HANDLE;
 import static io.prestosql.plugin.argus.MetadataUtil.TAGS;
+import static io.prestosql.plugin.argus.MetadataUtil.VALUE_FILTER;
 import static io.prestosql.spi.type.DoubleType.DOUBLE;
 import static io.prestosql.spi.type.TimestampType.TIMESTAMP;
 import static io.prestosql.spi.type.VarcharType.VARCHAR;
@@ -38,8 +39,6 @@ import static io.prestosql.spi.type.VarcharType.VARCHAR;
 public class ArgusColumnarMetadata
         extends ArgusMetadata
 {
-    public static final String VALUE = "value";
-
     @Inject
     public ArgusColumnarMetadata(TypeManager typeManager)
     {
@@ -62,6 +61,6 @@ public class ArgusColumnarMetadata
                 new ArgusColumnHandle(AGGREGATOR, VARCHAR),
                 new ArgusColumnHandle(DOWNSAMPLER, VARCHAR),
                 new ArgusColumnHandle(DATAPOINTS, mapType(typeManager, TIMESTAMP, DOUBLE)),
-                new ArgusColumnHandle(VALUE, DOUBLE)));
+                new ArgusColumnHandle(VALUE_FILTER, DOUBLE)));
     }
 }
