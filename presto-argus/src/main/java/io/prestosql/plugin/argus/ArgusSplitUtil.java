@@ -51,14 +51,15 @@ public class ArgusSplitUtil
         }
 
         Instant start = getStartTime(domains);
-        Instant end = getEndTime(domains).orElse(Instant.now());
+        Instant now = Instant.now();
+        Instant end = getEndTime(domains).orElse(now);
 
         Duration windowDuration = Duration.between(start, end)
                 .dividedBy(numSplits);
 
         Domain downsamplerDomain = domains.get(MetadataUtil.DOWNSAMPLER_HANDLE);
         if (downsamplerDomain != null) {
-            return generateDownsamplerSplits(downsamplerDomain, numSplits, start, end, windowDuration, domains);
+            return generateDownsamplerSplits(downsamplerDomain, numSplits, start, end, windowDuration, domains, now);
         }
 
         Instant currentWindowStart = start;
@@ -67,7 +68,11 @@ public class ArgusSplitUtil
             // for list of values e.g. WHERE metric IN (...), build one split per scope/metric combination
             for (Range scopeRange : getScopeRanges(domains)) {
                 for (Range metricRange : getMetricRanges(domains)) {
-                    splitsList.add(new ArgusSplit(Optional.of(currentWindowStart), Optional.of(currentWindowEnd), ((Slice) scopeRange.getSingleValue()).toStringUtf8(), ((Slice) metricRange.getSingleValue()).toStringUtf8()));
+                    splitsList.add(new ArgusSplit(
+                            Optional.of(currentWindowStart),
+                            now.equals(currentWindowEnd) ? Optional.empty() : Optional.of(currentWindowEnd),
+                                    ((Slice) scopeRange.getSingleValue()).toStringUtf8(),
+                                    ((Slice) metricRange.getSingleValue()).toStringUtf8()));
                 }
             }
             currentWindowStart = currentWindowEnd.plusSeconds(1);
@@ -81,7 +86,8 @@ public class ArgusSplitUtil
             Instant start,
             Instant end,
             Duration windowDuration,
-            Map<ColumnHandle, Domain> domains)
+            Map<ColumnHandle, Domain> domains,
+            Instant now)
     {
         Builder<ArgusSplit> splitsList = ImmutableList.builder();
 
@@ -99,7 +105,11 @@ public class ArgusSplitUtil
             // for list of values e.g. WHERE metric IN (...), build one split per scope/metric combination
             for (Range scopeRange : getScopeRanges(domains)) {
                 for (Range metricRange : getMetricRanges(domains)) {
-                    splitsList.add(new ArgusSplit(Optional.of(currentWindowStart), Optional.of(currentWindowEnd), ((Slice) scopeRange.getSingleValue()).toStringUtf8(), ((Slice) metricRange.getSingleValue()).toStringUtf8()));
+                    splitsList.add(new ArgusSplit(
+                            Optional.of(currentWindowStart),
+                            now.equals(currentWindowEnd) ? Optional.empty() : Optional.of(currentWindowEnd),
+                            ((Slice) scopeRange.getSingleValue()).toStringUtf8(),
+                            ((Slice) metricRange.getSingleValue()).toStringUtf8()));
                 }
             }
             // make the next window start time the next downsampling time bucket

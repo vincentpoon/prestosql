@@ -41,6 +41,7 @@ import static io.prestosql.plugin.argus.MetadataUtil.SYSTEM_SCHEMA_NAME;
 import static io.prestosql.spi.type.TimestampType.TIMESTAMP;
 import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static java.time.ZoneOffset.UTC;
+import static java.time.temporal.ChronoUnit.SECONDS;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
@@ -80,7 +81,7 @@ public class TestArgusSplitUtil
         assertEquals(split0.getStart().get(), start);
         assertTrue(split0.getEnd().get().compareTo(start) > 0);
         ArgusSplit split1 = splits.get(1);
-        assertEquals(split1.getStart().get(), split0.getEnd().get().plusMillis(1));
+        assertEquals(split1.getStart().get(), split0.getEnd().get().plusSeconds(1).truncatedTo(SECONDS));
         assertEquals(split1.getEnd(), Optional.empty());
 
         Instant end = LocalDateTime.of(2019, 6, 30, 13, 5).toInstant(UTC);
