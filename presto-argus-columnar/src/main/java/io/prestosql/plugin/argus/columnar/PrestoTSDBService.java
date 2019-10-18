@@ -236,11 +236,11 @@ public class PrestoTSDBService
                 VALUE, aggregatedValueProjection(agg));
         String projection = buildProjection(query, expressions);
 
-        StringBuilder filtersBuilder = buildFilters(query, bindings);
+        List<String> filters = buildFilters(query, bindings);
 
         String selectSql;
         if (query.getDownsampler() != null) {
-            String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, filtersBuilder, aliasedMapCols, groupByOrdinals, bindings);
+            String downsamplingSql = buildDownsamplingQuery(query, metricsTableName, filters, aliasedMapCols, groupByOrdinals, bindings);
             if (query.getDownsampler().equals(query.getAggregator())) {
                 return downsamplingSql;
             }
@@ -257,26 +257,26 @@ public class PrestoTSDBService
                     downsamplingSql, projection, groupByClause);
         }
         else {
-            filtersBuilder.append(MessageFormat.format(" AND {0} >= ? AND {0} <= ?", TIME));
+            filters.add(MessageFormat.format("{0} >= ? AND {0} <= ?", TIME));
             bindings.add(new TypeAndValue(TIMESTAMP, getUtcTimestamp(query.getStartTimestamp())));
             bindings.add(new TypeAndValue(TIMESTAMP, getUtcTimestamp(query.getEndTimestamp())));
             selectSql = MessageFormat.format(
                     "SELECT {0} FROM {1} WHERE {2} {3}",
-                    projection, metricsTableName, filtersBuilder, groupByClause);
+                    projection, metricsTableName, filters.stream().collect(joining(" AND ")), groupByClause);
         }
         return selectSql;
     }
 
-    protected StringBuilder buildFilters(MetricQuery query, List<TypeAndValue> bindings)
+    protected List<String> buildFilters(MetricQuery query, List<TypeAndValue> bindings)
     {
-        StringBuilder filters = new StringBuilder();
+        List<String> filters = new ArrayList<>();
 
         if (!isNullOrEmpty(query.getScope()) && !query.getScope().equals("*")) {
-            filters.append(MessageFormat.format("{0} IN {1}", SCOPE, toParamString(query.getScope(), bindings)));
+            filters.add(MessageFormat.format("{0} IN {1}", SCOPE, toParamString(query.getScope(), bindings)));
         }
 
         if (!isNullOrEmpty(query.getMetric()) && !query.getMetric().equals("*")) {
-            filters.append(MessageFormat.format(" AND {0} IN {1}", METRIC, toParamString(query.getMetric(), bindings)));
+            filters.add(MessageFormat.format("{0} IN {1}", METRIC, toParamString(query.getMetric(), bindings)));
         }
 
         String tagsFilter = query.getTags().entrySet().stream()
@@ -288,12 +288,14 @@ public class PrestoTSDBService
                     }
                 })
                 .map(entry -> MessageFormat.format(
-                        " AND element_at({0}, ?) IN ({1})",
+                        "element_at({0}, ?) IN ({1})",
                         TAGS,
                         // convert "tagA|tagB|tagC" to "?,?,?"
                         Arrays.stream(entry.getValue().split("\\|")).map(value -> "?").collect(joining(","))))
                 .collect(joining(","));
-        filters.append(tagsFilter);
+        if (!isNullOrEmpty(tagsFilter)) {
+            filters.add(tagsFilter);
+        }
 
         return filters;
     }
@@ -311,7 +313,7 @@ public class PrestoTSDBService
                 .collect(Collectors.joining(",", "(", ")"));
     }
 
-    private String buildDownsamplingQuery(MetricQuery query, String metricsTableName, StringBuilder filtersBuilder, String aliasedMapCols, String groupByOrdinals, List<TypeAndValue> bindings)
+    private String buildDownsamplingQuery(MetricQuery query, String metricsTableName, List<String> filters, String aliasedMapCols, String groupByOrdinals, List<TypeAndValue> bindings)
     {
         String downsamplingAgg = convertArgusAggregatorToPrestoAggregator(query.getDownsampler());
         long downsamplingPeriodSec = TimeUnit.SECONDS.convert(query.getDownsamplingPeriod(), TimeUnit.MILLISECONDS);
@@ -322,7 +324,7 @@ public class PrestoTSDBService
         // e.g. if end_time=timestamp '2019-07-01 15:00' and downsampler='15m-zimsum',
         // we need to query up to 15:15 to be able to downsample to 15:00
         String endTimeParameter = MessageFormat.format("from_unixtime((to_unixtime(?) + {0}) - (to_unixtime(?) % {0}))", Long.toString(downsamplingPeriodSec));
-        filtersBuilder.append(MessageFormat.format(" AND {0} >= {1} AND {0} <= {2}", TIME, startTimeParameter, endTimeParameter));
+        filters.add(MessageFormat.format("{0} >= {1} AND {0} <= {2}", TIME, startTimeParameter, endTimeParameter));
         bindings.add(new TypeAndValue(TIMESTAMP, getUtcTimestamp(query.getStartTimestamp())));
         bindings.add(new TypeAndValue(TIMESTAMP, getUtcTimestamp(query.getStartTimestamp())));
         bindings.add(new TypeAndValue(TIMESTAMP, getUtcTimestamp(query.getEndTimestamp())));
@@ -350,7 +352,7 @@ public class PrestoTSDBService
                         + "GROUP BY {3} ",
                 projection,
                 metricsTableName,
-                filtersBuilder,
+                filters.stream().collect(joining(" AND ")),
                 groupByColumns);
         return downsamplingSql;
     }

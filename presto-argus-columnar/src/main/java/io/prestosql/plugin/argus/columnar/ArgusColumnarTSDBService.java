@@ -62,14 +62,14 @@ public class ArgusColumnarTSDBService
     }
 
     @Override
-    protected StringBuilder buildFilters(MetricQuery query, List<TypeAndValue> bindings)
+    protected List<String> buildFilters(MetricQuery query, List<TypeAndValue> bindings)
     {
-        StringBuilder filterBuilder = super.buildFilters(query, bindings);
+        List<String> filters = super.buildFilters(query, bindings);
         ArgusColumnarMetricQuery columnarQuery = (ArgusColumnarMetricQuery) query;
         Optional<Domain> valueDomain = columnarQuery.getValueDomain();
         if (valueDomain.isPresent()) {
-            filterBuilder.append(" AND " + toPredicate(DOUBLE, VALUE.toString(), valueDomain.get(), bindings));
+            filters.add(toPredicate(DOUBLE, VALUE.toString(), valueDomain.get(), bindings));
         }
-        return filterBuilder;
+        return filters;
     }
 }
